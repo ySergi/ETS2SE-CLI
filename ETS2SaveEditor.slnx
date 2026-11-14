@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ets2SaveEditor.Core/Ets2SaveEditor.Core.csproj" />
+    <Project Path="src/Ets2SaveEditor.Cli/Ets2SaveEditor.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ets2SaveEditor.Tests/Ets2SaveEditor.Tests.csproj" />
+  </Folder>
+</Solution>
