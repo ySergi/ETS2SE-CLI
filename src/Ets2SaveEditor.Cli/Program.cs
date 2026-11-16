@@ -117,6 +117,10 @@ static void PrintHelp()
           map unlock-dealers <...>   Unlock truck dealers (or --from-visited)
           map unlock-recruitments    Unlock recruitment agencies (or --from-visited)
           map discover-companies     Mark all companies as discovered
+          map discover-roads         Discover all map roads/prefabs/areas [--no-secret] [--all-dlcs|--base-only] [--sync] [--from-file <path>]
+          map discover-photos        Unlock all photo spots in album/landmarks.sii [--all-dlcs|--base-only] [--sync] [--album-file <path>]
+          map discover-cinematics    Discover all cinematic viewpoints [--state 1|2] [--all-dlcs|--base-only] [--sync]
+          map discover-all           Discover all companies, roads, photo spots, and cinematic locations
 
           raw find <type>            Find unit IDs of an SII type [--limit N]
           raw get <unitId> [attr]    Print a unit or attribute
@@ -125,6 +129,8 @@ static void PrintHelp()
 
           backup list|create|restore Manage save backups
           tools status|install       Check or install SII_Decrypt & scs_extractor
-          catalog status|sync|cities Extract/query game definitions via scs_extractor
+          catalog status             Show cached game catalog & map item counts
+          catalog sync               Extract game definitions & maps [--with-dlcs] [--no-maps] [--game-dir <dir>]
+          catalog cities|photos|cinematics  Query cached definitions [--filter <text>]
         """);
 }

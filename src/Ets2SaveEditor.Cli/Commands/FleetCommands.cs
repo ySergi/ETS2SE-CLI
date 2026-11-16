@@ -314,7 +314,9 @@ internal static class FleetCommands
 
     public static int Map(CliContext ctx, string[] args)
     {
-        if (args.Length == 0) throw new CliUsageException("Usage: ets2se map <visit|unlock-dealers|unlock-recruitments|discover-companies> ...");
+        if (args.Length == 0)
+            throw new CliUsageException(
+                "Usage: ets2se map <visit|unlock-dealers|unlock-recruitments|discover-companies|discover-roads|discover-photos|discover-cinematics|discover-all> ...");
         var save = ctx.LoadSave();
         var sub = args[0].ToLowerInvariant();
         switch (sub)
@@ -356,8 +358,140 @@ internal static class FleetCommands
                 ctx.Commit(save, $"Marked {changed} company/companies as discovered.");
                 return 0;
 
+            case "discover-roads":
+            {
+                int added = ApplyDiscoverRoads(ctx, save);
+                ctx.Commit(save, $"Discovered {added:N0} new road/prefab/area item(s) (total {save.DiscoveredItems.Count:N0}).");
+                return 0;
+            }
+
+            case "discover-photos" or "discover-photo-spots" or "discover-landmarks":
+            {
+                var photoCatalog = EnsurePhotoAlbumCatalog(ctx);
+                var album = LoadAndUnlockPhotos(ctx, save, photoCatalog, out int added, out int total);
+                CommitAlbum(ctx, album, $"Unlocked {added} new photo spot(s) in '{album.FilePath}' (total {total}).");
+                return 0;
+            }
+
+            case "discover-cinematics" or "discover-viewpoints" or "discover-cutscenes":
+            {
+                int state = ctx.Options.GetFlag("state") is { } st ? CliContext.ParseInt(st, "state") : 2;
+                var photoCatalog = EnsurePhotoAlbumCatalog(ctx);
+                var (added, updated) = ApplyDiscoverCinematics(ctx, save, photoCatalog, state);
+                ctx.Commit(save, $"Discovered {added} new cinematic viewpoint(s), updated {updated} state(s) to {state} (total {save.DiscoveredCutscenes.Count}).");
+                return 0;
+            }
+
+            case "discover-all":
+            {
+                int state = ctx.Options.GetFlag("state") is { } st ? CliContext.ParseInt(st, "state") : 2;
+                var photoCatalog = EnsurePhotoAlbumCatalog(ctx);
+                var album = LoadAndUnlockPhotos(ctx, save, photoCatalog, out int photosAdded, out int photosTotal);
+                int companiesChanged = save.DiscoverAllCompanies();
+                int roadsAdded = ApplyDiscoverRoads(ctx, save);
+                var (csAdded, csUpdated) = ApplyDiscoverCinematics(ctx, save, photoCatalog, state);
+
+                ctx.Commit(save,
+                    $"Discovered {companiesChanged} company/companies, {roadsAdded:N0} road/map item(s) (total {save.DiscoveredItems.Count:N0}), " +
+                    $"and {csAdded} cinematic viewpoint(s) (+{csUpdated} updated, total {save.DiscoveredCutscenes.Count}).");
+                CommitAlbum(ctx, album, $"Unlocked {photosAdded} new photo spot(s) in '{album.FilePath}' (total {photosTotal}).");
+                return 0;
+            }
+
             default:
                 throw new CliUsageException($"Unknown map subcommand '{args[0]}'.");
         }
+    }
+
+    private static IReadOnlySet<string>? ResolveDlcFilter(CliContext ctx, Ets2Save save)
+    {
+        if (ctx.Options.HasFlag("base-only"))
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "base" };
+        if (ctx.Options.HasFlag("all-dlcs"))
+            return null;
+        return save.GetActiveDlcIds();
+    }
+
+    private static GameCatalogData EnsurePhotoAlbumCatalog(CliContext ctx)
+    {
+        bool forceSync = ctx.Options.HasFlag("sync");
+        var cached = forceSync ? null : GameCatalog.TryLoadCached();
+        if (cached?.PhotoSpots is { Count: > 0 } && cached.CinematicLocations is { Count: > 0 })
+            return cached;
+
+        var gameDir = GameCatalog.FindGameDirectory(ctx.Options.GetFlag("game-dir"))
+                      ?? throw new InvalidOperationException("Catalog photo/cinematic definitions are not cached and ETS2 directory could not be located. Run 'ets2se catalog sync' or pass --game-dir <path>.");
+        var extractor = ctx.RequireScsExtractor();
+        return GameCatalog.SyncFromGame(extractor, gameDir, includeMapDlcs: false, log: Console.WriteLine, includeMapSectors: false);
+    }
+
+    private static IReadOnlyList<MapItemEntry> EnsureMapItemsCatalog(CliContext ctx)
+    {
+        bool forceSync = ctx.Options.HasFlag("sync");
+        var cached = forceSync ? null : MapItemsCache.TryLoad();
+        if (cached is { Count: > 0 })
+            return cached;
+
+        var gameDir = GameCatalog.FindGameDirectory(ctx.Options.GetFlag("game-dir"))
+                      ?? throw new InvalidOperationException("Map road catalog is not cached and ETS2 directory could not be located. Run 'ets2se catalog sync --with-dlcs' or pass --game-dir <path>.");
+        var extractor = ctx.RequireScsExtractor();
+        bool includeDlcs = !ctx.Options.HasFlag("base-only");
+        return GameCatalog.SyncMapItemsOnly(extractor, gameDir, includeDlcs, log: Console.WriteLine);
+    }
+
+    private static int ApplyDiscoverRoads(CliContext ctx, Ets2Save save)
+    {
+        if (ctx.Options.GetFlag("from-file") is { } uidFile)
+        {
+            if (!File.Exists(uidFile)) throw new FileNotFoundException("UID list file not found.", uidFile);
+            var uids = new List<ulong>();
+            foreach (var raw in File.ReadLines(uidFile))
+            {
+                var line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith('#')) continue;
+                if (Ets2Save.TryParseSiiUid(line, out var uid))
+                    uids.Add(uid);
+                else
+                    throw new FormatException($"Invalid road/map item UID in '{uidFile}': '{line}'.");
+            }
+            return save.DiscoverMapItems(uids, uids.Count > 0 ? 1f : null);
+        }
+
+        var items = EnsureMapItemsCatalog(ctx);
+        bool includeSecret = !ctx.Options.HasFlag("no-secret");
+        var dlcFilter = ResolveDlcFilter(ctx, save);
+        return save.DiscoverAllMapItems(items, includeSecret, dlcFilter);
+    }
+
+    private static (int Added, int Updated) ApplyDiscoverCinematics(CliContext ctx, Ets2Save save, GameCatalogData catalog, int state)
+    {
+        var dlcFilter = ResolveDlcFilter(ctx, save);
+        return save.DiscoverAllCutscenes(catalog.CinematicLocations ?? [], state, dlcFilter);
+    }
+
+    private static PhotoAlbum LoadAndUnlockPhotos(CliContext ctx, Ets2Save save, GameCatalogData catalog, out int added, out int total)
+    {
+        var dlcFilter = ResolveDlcFilter(ctx, save);
+        var landmarksPath = PhotoAlbum.ResolveLandmarksPath(save.SaveDirectory, ctx.Options.GetFlag("album-file"));
+        var album = PhotoAlbum.Load(landmarksPath, ctx.TryDecryptTool());
+
+        var ids = (catalog.PhotoSpots ?? [])
+            .Where(p => DlcGuardTable.IsDlcIdAllowed(p.DlcId, dlcFilter))
+            .Select(p => p.Id);
+        (added, total) = album.UnlockLandmarks(ids);
+        return album;
+    }
+
+    private static void CommitAlbum(CliContext ctx, PhotoAlbum album, string summary)
+    {
+        if (ctx.Options.DryRun)
+        {
+            Console.WriteLine($"[dry-run] {summary} (no files written)");
+            return;
+        }
+        var backup = album.Save(createBackup: !ctx.Options.NoBackup);
+        Console.WriteLine(summary);
+        if (backup is not null)
+            Console.WriteLine($"Album backup saved: {backup.Id} ({backup.Directory})");
     }
 }

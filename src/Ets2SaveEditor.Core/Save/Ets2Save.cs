@@ -1,3 +1,4 @@
+using System.Globalization;
 using Ets2SaveEditor.Core.Game;
 using Ets2SaveEditor.Core.Sii;
 using Ets2SaveEditor.Core.Tools;
@@ -27,6 +28,8 @@ public sealed class Ets2Save
     public SiiUnit Economy { get; }
     public SiiUnit Bank { get; }
     public SiiUnit Player { get; }
+
+    private float? _exploredRatio;
 
     private Ets2Save(string saveDir, string gamePath, string? infoPath, SiiFileFormat format, SiiDocument game, SiiDocument? info)
     {
@@ -109,6 +112,8 @@ public sealed class Ets2Save
         info.TrySet("info_visited_cities", VisitedCities.Count.ToString());
         info.TrySet("info_unlocked_dealers", UnlockedDealers.Count.ToString());
         info.TrySet("info_unlocked_recruitments", UnlockedRecruitments.Count.ToString());
+        if (_exploredRatio.HasValue)
+            info.TrySet("info_explored_ratio", SiiValue.FormatFloat(_exploredRatio.Value));
     }
 
     // --- Economy & Bank ---
@@ -297,6 +302,157 @@ public sealed class Ets2Save
             }
         }
         return changed;
+    }
+
+    // --- Discovery: Roads / Map Items & Cinematic Locations (Viewpoints) ---
+
+    public IReadOnlySet<string>? GetActiveDlcIds()
+    {
+        var deps = Info?.FirstOfType("save_container")?.GetArray("dependencies");
+        if (deps is null || deps.Count == 0) return null;
+
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "base" };
+        foreach (var raw in deps)
+        {
+            var s = SiiValue.Unquote(raw);
+            var parts = s.Split('|');
+            if (parts.Length >= 2 && parts[0] is "dlc" or "rdlc")
+                set.Add(parts[1].Trim());
+        }
+        return set;
+    }
+
+    public List<string> DiscoveredItems => Economy.GetArray("discovered_items");
+    public List<string> DiscoveredCutscenes => Economy.GetArray("discovered_cutscene_items");
+    public List<string> DiscoveredCutsceneStates => Economy.GetArray("discovered_cutscene_items_states");
+
+    public int DiscoverMapItems(IEnumerable<ulong> itemUids, float? exploredRatio = null)
+    {
+        var items = Economy.GetArray("discovered_items");
+        var seen = new HashSet<ulong>();
+        foreach (var raw in items)
+        {
+            if (ulong.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var existing))
+                seen.Add(existing);
+        }
+
+        int added = 0;
+        foreach (var uid in itemUids)
+        {
+            if (!seen.Add(uid)) continue;
+            items.Add(uid.ToString(CultureInfo.InvariantCulture));
+            added++;
+        }
+
+        if (added > 0)
+            Economy.SetArray("discovered_items", items, addIfMissing: true);
+
+        if (exploredRatio.HasValue)
+            _exploredRatio = Math.Clamp(exploredRatio.Value, 0f, 1f);
+
+        return added;
+    }
+
+    public int DiscoverAllMapItems(
+        IEnumerable<MapItemEntry> catalogItems,
+        bool includeSecret = true,
+        IReadOnlySet<string>? activeDlcIds = null)
+    {
+        var allowed = new List<ulong>();
+        var nonSecretAllowed = new HashSet<ulong>();
+        foreach (var item in catalogItems)
+        {
+            if (!DlcGuardTable.IsAllowed(item.DlcGuard, activeDlcIds)) continue;
+            if (!item.IsSecret) nonSecretAllowed.Add(item.Uid);
+            if (!includeSecret && item.IsSecret) continue;
+            allowed.Add(item.Uid);
+        }
+
+        int added = DiscoverMapItems(allowed, nonSecretAllowed.Count > 0 ? 1f : null);
+        if (nonSecretAllowed.Count > 0)
+        {
+            int covered = 0;
+            foreach (var raw in Economy.GetArray("discovered_items"))
+            {
+                if (ulong.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var uid)
+                    && nonSecretAllowed.Contains(uid))
+                    covered++;
+            }
+            _exploredRatio = Math.Clamp((float)covered / nonSecretAllowed.Count, 0f, 1f);
+        }
+        return added;
+    }
+
+    public (int Added, int Updated) DiscoverCutscenes(IEnumerable<ulong> cutsceneUids, int targetState = 2)
+    {
+        if (targetState < 1 || targetState > 2)
+            throw new ArgumentOutOfRangeException(nameof(targetState), "Cutscene state must be 1 (discovered) or 2 (watched).");
+
+        var items = Economy.GetArray("discovered_cutscene_items");
+        var states = Economy.GetArray("discovered_cutscene_items_states");
+        while (states.Count < items.Count)
+            states.Add(targetState.ToString(CultureInfo.InvariantCulture));
+
+        var indexByUid = new Dictionary<ulong, int>();
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (ulong.TryParse(items[i].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var existing))
+                indexByUid.TryAdd(existing, i);
+        }
+
+        int added = 0;
+        int updated = 0;
+        var stateStr = targetState.ToString(CultureInfo.InvariantCulture);
+
+        foreach (var uid in cutsceneUids)
+        {
+            if (indexByUid.TryGetValue(uid, out int idx))
+            {
+                if (int.TryParse(states[idx].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int cur)
+                    && cur < targetState)
+                {
+                    states[idx] = stateStr;
+                    updated++;
+                }
+                continue;
+            }
+
+            indexByUid[uid] = items.Count;
+            items.Add(uid.ToString(CultureInfo.InvariantCulture));
+            states.Add(stateStr);
+            added++;
+        }
+
+        if (added > 0 || updated > 0)
+        {
+            Economy.SetArray("discovered_cutscene_items", items, addIfMissing: true);
+            Economy.SetArray("discovered_cutscene_items_states", states, addIfMissing: true);
+        }
+
+        return (added, updated);
+    }
+
+    public (int Added, int Updated) DiscoverAllCutscenes(
+        IEnumerable<CinematicLocationEntry> catalogCutscenes,
+        int targetState = 2,
+        IReadOnlySet<string>? activeDlcIds = null)
+    {
+        var uids = new List<ulong>();
+        foreach (var c in catalogCutscenes)
+        {
+            if (!DlcGuardTable.IsDlcIdAllowed(c.DlcId, activeDlcIds)) continue;
+            if (TryParseSiiUid(c.ObjectUid, out var uid))
+                uids.Add(uid);
+        }
+        return DiscoverCutscenes(uids, targetState);
+    }
+
+    public static bool TryParseSiiUid(string raw, out ulong uid)
+    {
+        var s = raw.Trim();
+        if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return ulong.TryParse(s[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uid);
+        return ulong.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out uid);
     }
 
     // --- Garages ---

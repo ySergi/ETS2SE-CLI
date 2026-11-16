@@ -139,7 +139,7 @@ internal static class SystemCommands
 
     public static int Catalog(CliContext ctx, string[] args)
     {
-        if (args.Length == 0) throw new CliUsageException("Usage: ets2se catalog <status|sync|cities> ...");
+        if (args.Length == 0) throw new CliUsageException("Usage: ets2se catalog <status|sync|cities|photos|cinematics> ...");
         var sub = args[0].ToLowerInvariant();
         switch (sub)
         {
@@ -152,6 +152,7 @@ internal static class SystemCommands
                     Console.WriteLine("Run 'ets2se catalog sync' to extract def.scs with scs_extractor.exe.");
                     return 0;
                 }
+                int mapItems = MapItemsCache.TryLoad()?.Count ?? cached.MapItemCount;
                 Console.WriteLine($"Cache file:    {GameCatalog.CacheJsonPath()}");
                 Console.WriteLine($"Game dir:      {cached.GameDirectory}");
                 Console.WriteLine($"Synced (UTC):  {cached.ExtractedAtUtc:yyyy-MM-dd HH:mm:ss}");
@@ -159,6 +160,9 @@ internal static class SystemCommands
                 Console.WriteLine($"Cities:        {cached.Cities.Count}");
                 Console.WriteLine($"Companies:     {cached.Companies.Count}");
                 Console.WriteLine($"Truck models:  {cached.TruckModels.Count}");
+                Console.WriteLine($"Photo spots:   {cached.PhotoSpots?.Count ?? 0}");
+                Console.WriteLine($"Cinematics:    {cached.CinematicLocations?.Count ?? 0}");
+                Console.WriteLine($"Map items:     {mapItems:N0}");
                 return 0;
             }
 
@@ -167,9 +171,12 @@ internal static class SystemCommands
                 var gameDir = GameCatalog.FindGameDirectory(ctx.Options.GetFlag("game-dir"))
                               ?? throw new InvalidOperationException("Could not locate ETS2 installation directory. Pass --game-dir <path>.");
                 bool withDlcs = ctx.Options.HasFlag("with-dlcs");
+                bool withMaps = !ctx.Options.HasFlag("no-maps");
                 var extractor = ctx.RequireScsExtractor();
-                var data = GameCatalog.SyncFromGame(extractor, gameDir, withDlcs, log: Console.WriteLine);
-                Console.WriteLine($"Synced catalog: {data.Cities.Count} cities, {data.Companies.Count} companies, {data.TruckModels.Count} trucks, {data.LevelXp.Length} XP levels.");
+                var data = GameCatalog.SyncFromGame(extractor, gameDir, withDlcs, log: Console.WriteLine, includeMapSectors: withMaps);
+                Console.WriteLine(
+                    $"Synced catalog: {data.Cities.Count} cities, {data.Companies.Count} companies, {data.TruckModels.Count} trucks, " +
+                    $"{data.PhotoSpots?.Count ?? 0} photo spots, {data.CinematicLocations?.Count ?? 0} cinematics, {data.MapItemCount:N0} map items.");
                 return 0;
             }
 
@@ -186,6 +193,40 @@ internal static class SystemCommands
                     .ToList();
                 foreach (var c in list)
                     Console.WriteLine($"{c.Id,-22} {c.Name,-24} {c.Country,-16} ({c.SourceArchive})");
+                Console.WriteLine($"Total: {list.Count}");
+                return 0;
+            }
+
+            case "photos":
+            {
+                var cached = GameCatalog.TryLoadCached()
+                             ?? throw new InvalidOperationException("Catalog not synced yet. Run 'ets2se catalog sync' first.");
+                var filter = ctx.Options.GetFlag("filter");
+                var list = (cached.PhotoSpots ?? [])
+                    .Where(p => string.IsNullOrEmpty(filter)
+                                || p.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                                || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                                || p.DlcId.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                foreach (var p in list)
+                    Console.WriteLine($"{p.Id,-20} {p.DlcId,-16} {p.Name}");
+                Console.WriteLine($"Total: {list.Count}");
+                return 0;
+            }
+
+            case "cinematics":
+            {
+                var cached = GameCatalog.TryLoadCached()
+                             ?? throw new InvalidOperationException("Catalog not synced yet. Run 'ets2se catalog sync' first.");
+                var filter = ctx.Options.GetFlag("filter");
+                var list = (cached.CinematicLocations ?? [])
+                    .Where(v => string.IsNullOrEmpty(filter)
+                                || v.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                                || v.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                                || v.DlcId.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                foreach (var v in list)
+                    Console.WriteLine($"{v.Id,-20} {v.DlcId,-16} {v.ObjectUid,-20} {v.Name}");
                 Console.WriteLine($"Total: {list.Count}");
                 return 0;
             }

@@ -60,6 +60,22 @@ internal static class CoreCommands
         Console.WriteLine($"  Garages:     {ownedGarages.Count} owned / {garages.Count} total");
         Console.WriteLine($"  Drivers:     {drivers.Count} hired");
         Console.WriteLine($"  Visited:     {save.VisitedCities.Count} cities, {save.UnlockedDealers.Count} dealers, {save.UnlockedRecruitments.Count} recruitments");
+        int? photoCount = null;
+        if (PhotoAlbum.TryResolveProfileDirFromSave(save.SaveDirectory) is { } profDir)
+        {
+            var lmPath = Path.Combine(profDir, "album", "landmarks.sii");
+            if (File.Exists(lmPath))
+            {
+                try { photoCount = PhotoAlbum.Load(lmPath, ctx.TryDecryptTool()).GetUnlockedLandmarkIds().Count; }
+                catch { /* non-fatal in info summary */ }
+            }
+            else
+            {
+                photoCount = 0;
+            }
+        }
+        var photoText = photoCount.HasValue ? $", {photoCount.Value} photo spots" : "";
+        Console.WriteLine($"  Discovered:  {save.DiscoveredItems.Count:N0} map items, {save.DiscoveredCutscenes.Count} cinematic viewpoints{photoText}");
         Console.WriteLine($"  Deliveries:  {save.DeliveryLogCount} logged | Undamaged streak: {save.UndamagedCargoRow} | Max clean km: {save.CleanDistanceMax:N0}");
         Console.WriteLine($"  Distance:    {save.TotalTruckDistanceKm:N0} km | Fuel: {save.TotalFuelLitres:N0} L ({save.TotalFuelPrice:N0} EUR)");
         Console.WriteLine($"  Offences:    {police.EntryCount} recent log entries, {police.TotalFines:N0} EUR total fines (red lights: {save.RedLightFineCount}, crashes: {save.AiCrashCount})");

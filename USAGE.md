@@ -103,6 +103,14 @@
 | `map unlock-dealers <...>` | Unlock truck dealers (or `--from-visited`) |
 | `map unlock-recruitments` | Unlock recruitment agencies (or `--from-visited`) |
 | `map discover-companies` | Mark all companies as discovered |
+| `map discover-roads` | Discover all map roads, prefabs, and map areas (`economy.discovered_items` + `info_explored_ratio`) `[--no-secret] [--all-dlcs \| --base-only] [--sync] [--game-dir <dir>] [--from-file <path>]` |
+| `map discover-photos` | Unlock all photo spots / Photo Trophies in `<profile>/album/landmarks.sii` (aliases: `discover-photo-spots`, `discover-landmarks`) `[--all-dlcs \| --base-only] [--sync] [--game-dir <dir>] [--album-file <path>]` |
+| `map discover-cinematics` | Discover all cinematic viewpoints (`economy.discovered_cutscene_items`, aliases: `discover-viewpoints`, `discover-cutscenes`) `[--state <1\|2>] [--all-dlcs \| --base-only] [--sync] [--game-dir <dir>]` |
+| `map discover-all` | Discover all companies, roads, photo spots, and cinematic locations together |
+
+* **DLC filtering:** By default, `discover-roads`, `discover-photos`, and `discover-cinematics` filter items using active DLC `dependencies` in `info.sii`. Pass `--all-dlcs` to include all cached DLCs or `--base-only` for base-game content only.
+* **Viewpoint states (`--state`):** `2` = watched/completed *(default)*, `1` = discovered on map only.
+* **Photo spots backup:** Modifying `album/landmarks.sii` preserves existing entries and `screenshot_file` paths and writes a timestamped backup under `<profile>/.ets2se_backups/album/` unless `--no-backup` is passed.
 
 ### Raw SII & System Utilities
 | Command | Description |
@@ -113,4 +121,6 @@
 | `raw decrypt <in> [out]` | Decrypt/decode any SII file via `SII_Decrypt` |
 | `backup list\|create\|restore` | Manage save backups |
 | `tools status\|install` | Check or install `SII_Decrypt` & `scs_extractor` |
-| `catalog status\|sync\|cities` | Extract/query game definitions via `scs_extractor` |
+| `catalog status` | Show cached game catalog, photo spots, cinematics, and map item counts |
+| `catalog sync` | Extract game definitions and map sectors via `scs_extractor` `[--with-dlcs] [--no-maps] [--game-dir <dir>]` |
+| `catalog cities\|photos\|cinematics` | Query cached cities, photo spots, or cinematic locations `[--filter <text>]` |
