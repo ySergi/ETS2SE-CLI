@@ -5,7 +5,7 @@ A .NET 11.0 CLI save editor for **Euro Truck Simulator 2 (ETS2)** that integrate
 ## External Tools
 
 - `SII_Decrypt.exe` — [TheLazyTomcat/SII_Decrypt](https://github.com/TheLazyTomcat/SII_Decrypt)
-- `scs_extractor.exe` — Official SCS Game Archive Extractor
+- `scs_extractor.exe` — [Official SCS Game Archive Extractor](https://modding.scssoft.com/wiki/Documentation/Tools/Game_Archive_Extractor)
 
 Check or install/reinstall tools at any time:
 
