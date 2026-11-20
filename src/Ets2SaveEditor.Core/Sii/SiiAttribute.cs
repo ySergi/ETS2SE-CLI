@@ -64,6 +64,9 @@ public sealed partial class SiiAttribute
 
     public bool IsModified => _rawLine is null;
 
+    public SiiAttribute Clone() =>
+        Key is null ? new SiiAttribute("", null, _value, _rawLine) : new SiiAttribute(Indent, Key, _value, _rawLine);
+
     public string ToLine() => _rawLine ?? $"{Indent}{Key}: {_value}";
 
     public override string ToString() => ToLine();

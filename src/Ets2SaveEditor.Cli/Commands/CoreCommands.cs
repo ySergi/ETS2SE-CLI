@@ -58,7 +58,7 @@ internal static class CoreCommands
         Console.WriteLine($"  Trucks:      {trucks.Count}" + (activeTruck is not null ? $" (active: {activeTruck.ModelName} [{activeTruck.LicensePlate}], wear {activeTruck.MaxWear:P1}, fuel {activeTruck.FuelRelative:P0})" : ""));
         Console.WriteLine($"  Trailers:    {trailers.Count}");
         Console.WriteLine($"  Garages:     {ownedGarages.Count} owned / {garages.Count} total");
-        Console.WriteLine($"  Drivers:     {drivers.Count} hired");
+        Console.WriteLine($"  Drivers:     {drivers.Count} hired ({save.GetAvailableDrivers().Count} available)");
         Console.WriteLine($"  Visited:     {save.VisitedCities.Count} cities, {save.UnlockedDealers.Count} dealers, {save.UnlockedRecruitments.Count} recruitments");
         int? photoCount = null;
         if (PhotoAlbum.TryResolveProfileDirFromSave(save.SaveDirectory) is { } profDir)

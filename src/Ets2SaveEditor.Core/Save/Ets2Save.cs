@@ -16,6 +16,29 @@ public sealed record ActiveJobInfo(
     long TotalFines,
     bool IsLoaded);
 
+public sealed record HiredDriverAssignment(string DriverId, string City, int SlotIndex, string? AssignedTruckId = null);
+
+public sealed record HireDriversResult(
+    IReadOnlyList<HiredDriverAssignment> Assignments,
+    int OwnedGaragesTargeted,
+    int GaragesUpdated,
+    int EmptySlotsBefore,
+    int EmptySlotsRemaining,
+    int AvailableDriversBefore,
+    int AvailableDriversRemaining,
+    int TrucksAssigned = 0,
+    string? TruckTemplateModel = null);
+
+public sealed record TruckAssignment(string TruckId, string DriverId, string City, int SlotIndex);
+
+public sealed record AssignDriverTrucksResult(
+    IReadOnlyList<TruckAssignment> Assignments,
+    int OwnedGaragesTargeted,
+    int GaragesUpdated,
+    int UnassignedDriverSlotsBefore,
+    int UnassignedDriverSlotsRemaining,
+    string? TruckTemplateModel = null);
+
 public sealed class Ets2Save
 {
     public string SaveDirectory { get; }
@@ -529,6 +552,13 @@ public sealed class Ets2Save
 
     // --- Drivers ---
 
+    private static readonly string[] PlayerDriverParallelArrays =
+    [
+        "driver_flags",
+        "driver_readiness_timer",
+        "driver_undrivable_truck_timers",
+    ];
+
     public IReadOnlyList<HiredDriver> GetHiredDrivers() =>
         Player.GetArray("drivers")
             .Select(Game.FindUnit)
@@ -536,6 +566,466 @@ public sealed class Ets2Save
             .Where(u => u.Type == "driver_ai")
             .Select(u => new HiredDriver(u))
             .ToList();
+
+    /// <summary>
+    /// Returns all unhired <c>driver_ai</c> units available for recruitment (from <c>economy.driver_pool</c>,
+    /// <c>economy.drivers_offer</c>, and any standalone unhired <c>driver_ai</c> units).
+    /// </summary>
+    public IReadOnlyList<HiredDriver> GetAvailableDrivers()
+    {
+        var taken = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var id in Player.GetArray("drivers"))
+            if (!SiiValue.IsNull(id)) taken.Add(id);
+        foreach (var id in Player.GetArray("dismissed_drivers"))
+            if (!SiiValue.IsNull(id)) taken.Add(id);
+        foreach (var g in GetAllGarages())
+            foreach (var id in g.Drivers)
+                if (!SiiValue.IsNull(id)) taken.Add(id);
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var available = new List<HiredDriver>();
+
+        void AddCandidate(string id)
+        {
+            if (SiiValue.IsNull(id) || taken.Contains(id) || !seen.Add(id)) return;
+            var unit = Game.FindUnit(id);
+            if (unit is not null && unit.Type == "driver_ai")
+                available.Add(new HiredDriver(unit));
+        }
+
+        foreach (var id in Economy.GetArray("driver_pool")) AddCandidate(id);
+        foreach (var id in Economy.GetArray("drivers_offer")) AddCandidate(id);
+        foreach (var u in Game.UnitsOfType("driver_ai")) AddCandidate(u.Id);
+
+        return available;
+    }
+
+    /// <summary>
+    /// Hires available AI drivers from the save's recruitment pool/offers and assigns them to empty
+    /// slots across all owned garages (or a single owned garage when <paramref name="garageCity"/> is set).
+    /// Keeps <c>player.drivers</c>, parallel player driver arrays, <c>economy.driver_pool</c>,
+    /// <c>economy.drivers_offer</c>, <c>garage.drivers</c>, and <c>driver_ai</c> state synchronized.
+    /// Optionally clones and assigns a fresh truck to each hired driver's garage slot when <paramref name="assignTruck"/> is true.
+    /// </summary>
+    public HireDriversResult HireDrivers(
+        string? garageCity = null,
+        int? maxCount = null,
+        string? specificDriverId = null,
+        bool onlyWithTruck = false,
+        bool spread = false,
+        bool maxSkills = false,
+        long? experiencePoints = null,
+        bool assignTruck = false,
+        string? truckTemplateId = null)
+    {
+        if (maxCount is < 1)
+            throw new ArgumentOutOfRangeException(nameof(maxCount), "Driver count must be at least 1.");
+        if (experiencePoints is < 0)
+            throw new ArgumentOutOfRangeException(nameof(experiencePoints), "XP cannot be negative.");
+        if (assignTruck && onlyWithTruck)
+            throw new InvalidOperationException("Cannot combine '--assign-truck' with '--only-with-truck'.");
+
+        List<Garage> targetGarages = ResolveTargetOwnedGarages(garageCity);
+
+        var available = GetAvailableDrivers();
+        int availableBefore = available.Count;
+
+        IReadOnlyList<HiredDriver> candidates;
+        if (!string.IsNullOrWhiteSpace(specificDriverId))
+        {
+            var match = available.FirstOrDefault(d => d.Id.Equals(specificDriverId, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                if (GetHiredDrivers().Any(d => d.Id.Equals(specificDriverId, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException($"Driver '{specificDriverId}' is already hired.");
+                throw new KeyNotFoundException($"Available unhired driver '{specificDriverId}' not found.");
+            }
+            candidates = [match];
+        }
+        else
+        {
+            candidates = available;
+        }
+
+        // Validate explicit template ID early even if no slots end up filled.
+        SiiUnit? templateTruckUnit = assignTruck && !string.IsNullOrWhiteSpace(truckTemplateId)
+            ? ResolveTemplateTruckUnit(truckTemplateId)
+            : null;
+
+        var garageStates = new List<(Garage Garage, List<string> Drivers, List<string> Vehicles, Queue<int> EmptySlots)>(targetGarages.Count);
+        foreach (var g in targetGarages)
+        {
+            int slots = g.Size.Slots();
+            var drivers = g.Drivers;
+            while (drivers.Count < slots) drivers.Add("null");
+            var vehicles = g.Vehicles;
+            while (vehicles.Count < slots) vehicles.Add("null");
+
+            var empty = new Queue<int>();
+            for (int i = 0; i < slots; i++)
+            {
+                if (!SiiValue.IsNull(drivers[i])) continue;
+                if (onlyWithTruck && SiiValue.IsNull(vehicles[i])) continue;
+                empty.Enqueue(i);
+            }
+
+            if (empty.Count > 0)
+                garageStates.Add((g, drivers, vehicles, empty));
+        }
+
+        var orderedSlots = new List<(Garage Garage, List<string> Drivers, List<string> Vehicles, int SlotIndex)>();
+        if (spread)
+        {
+            bool any;
+            do
+            {
+                any = false;
+                foreach (var gs in garageStates)
+                {
+                    if (gs.EmptySlots.Count > 0)
+                    {
+                        orderedSlots.Add((gs.Garage, gs.Drivers, gs.Vehicles, gs.EmptySlots.Dequeue()));
+                        any = true;
+                    }
+                }
+            } while (any);
+        }
+        else
+        {
+            foreach (var gs in garageStates)
+            {
+                while (gs.EmptySlots.Count > 0)
+                    orderedSlots.Add((gs.Garage, gs.Drivers, gs.Vehicles, gs.EmptySlots.Dequeue()));
+            }
+        }
+
+        int emptySlotsBefore = orderedSlots.Count;
+        int limit = Math.Min(orderedSlots.Count, candidates.Count);
+        if (maxCount.HasValue) limit = Math.Min(limit, maxCount.Value);
+
+        if (limit == 0)
+        {
+            return new HireDriversResult(
+                [],
+                targetGarages.Count,
+                0,
+                emptySlotsBefore,
+                emptySlotsBefore,
+                availableBefore,
+                availableBefore);
+        }
+
+        bool needsAnyTruck = assignTruck && orderedSlots.Take(limit).Any(s => SiiValue.IsNull(s.Vehicles[s.SlotIndex]));
+        string? templateModel = null;
+        if (needsAnyTruck)
+        {
+            templateTruckUnit ??= ResolveTemplateTruckUnit(truckTemplateId);
+            templateModel = new Vehicle(templateTruckUnit, Game).ModelName;
+        }
+
+        var nextNamelessId = CreateNamelessIdAllocator();
+        var newTruckUnits = new List<SiiUnit>();
+        var newPlayerTrucks = new List<(string TruckId, string ProfitLogId)>();
+
+        var assignments = new List<HiredDriverAssignment>(limit);
+        var hiredIds = new HashSet<string>(StringComparer.Ordinal);
+        var modifiedGarageDrivers = new Dictionary<string, (Garage Garage, List<string> Drivers)>(StringComparer.Ordinal);
+        var modifiedGarageVehicles = new Dictionary<string, (Garage Garage, List<string> Vehicles)>(StringComparer.Ordinal);
+
+        for (int k = 0; k < limit; k++)
+        {
+            var driver = candidates[k];
+            var (garage, garageDrivers, garageVehicles, slotIndex) = orderedSlots[k];
+
+            garageDrivers[slotIndex] = driver.Id;
+            modifiedGarageDrivers[garage.Unit.Id] = (garage, garageDrivers);
+
+            string? assignedTruckId = null;
+            if (assignTruck && SiiValue.IsNull(garageVehicles[slotIndex]))
+            {
+                var (truckId, profitLogId) = CloneFreshTruck(templateTruckUnit!, nextNamelessId, newTruckUnits);
+                garageVehicles[slotIndex] = truckId;
+                modifiedGarageVehicles[garage.Unit.Id] = (garage, garageVehicles);
+                newPlayerTrucks.Add((truckId, profitLogId));
+                assignedTruckId = truckId;
+            }
+
+            driver.Unit.Set("hometown", garage.City, addIfMissing: true);
+            driver.Unit.Set("current_city", garage.City, addIfMissing: true);
+            driver.Unit.TrySet("old_hometown", "\"\"");
+            driver.Unit.TrySet("state", "1");
+            driver.Unit.TrySet("on_duty_timer", "0");
+            if (maxSkills) driver.MaxSkills();
+            if (experiencePoints.HasValue) driver.ExperiencePoints = experiencePoints.Value;
+
+            assignments.Add(new HiredDriverAssignment(driver.Id, garage.City, slotIndex, assignedTruckId));
+            hiredIds.Add(driver.Id);
+        }
+
+        foreach (var (garage, garageDrivers) in modifiedGarageDrivers.Values)
+            garage.Unit.SetArray("drivers", garageDrivers);
+
+        if (newTruckUnits.Count > 0)
+        {
+            foreach (var (garage, garageVehicles) in modifiedGarageVehicles.Values)
+                garage.Unit.SetArray("vehicles", garageVehicles);
+
+            Game.InsertUnitsAfter(templateTruckUnit!, newTruckUnits);
+            RegisterPlayerTrucks(newPlayerTrucks);
+        }
+
+        if (Economy.IsArray("driver_pool"))
+        {
+            var pool = Economy.GetArray("driver_pool").Where(id => !hiredIds.Contains(id)).ToList();
+            Economy.SetArray("driver_pool", pool);
+        }
+
+        if (Economy.IsArray("drivers_offer"))
+        {
+            var offers = Economy.GetArray("drivers_offer");
+            bool changedOffers = false;
+            for (int i = 0; i < offers.Count; i++)
+            {
+                if (hiredIds.Contains(offers[i]))
+                {
+                    offers[i] = "null";
+                    changedOffers = true;
+                }
+            }
+            if (changedOffers) Economy.SetArray("drivers_offer", offers);
+        }
+
+        var playerDrivers = Player.GetArray("drivers");
+        foreach (var a in assignments)
+            playerDrivers.Add(a.DriverId);
+        Player.SetArray("drivers", playerDrivers);
+
+        foreach (var parallelName in PlayerDriverParallelArrays)
+        {
+            if (!Player.IsArray(parallelName)) continue;
+            var arr = Player.GetArray(parallelName);
+            while (arr.Count < playerDrivers.Count) arr.Add("0");
+            Player.SetArray(parallelName, arr);
+        }
+
+        return new HireDriversResult(
+            assignments,
+            targetGarages.Count,
+            modifiedGarageDrivers.Count,
+            emptySlotsBefore,
+            emptySlotsBefore - assignments.Count,
+            availableBefore,
+            availableBefore - assignments.Count,
+            newPlayerTrucks.Count,
+            templateModel);
+    }
+
+    /// <summary>
+    /// Clones and assigns a fresh truck to every hired AI driver in owned garages (or a target garage)
+    /// whose garage slot currently has no truck.
+    /// </summary>
+    public AssignDriverTrucksResult AssignTrucksToDrivers(
+        string? garageCity = null,
+        int? maxCount = null,
+        string? truckTemplateId = null)
+    {
+        if (maxCount is < 1)
+            throw new ArgumentOutOfRangeException(nameof(maxCount), "Truck count must be at least 1.");
+
+        var targetGarages = ResolveTargetOwnedGarages(garageCity);
+
+        SiiUnit? templateTruckUnit = !string.IsNullOrWhiteSpace(truckTemplateId)
+            ? ResolveTemplateTruckUnit(truckTemplateId)
+            : null;
+
+        var slotsNeedingTrucks = new List<(Garage Garage, List<string> Vehicles, int SlotIndex, string DriverId)>();
+        foreach (var g in targetGarages)
+        {
+            int slots = g.Size.Slots();
+            var drivers = g.Drivers;
+            var vehicles = g.Vehicles;
+            while (vehicles.Count < slots) vehicles.Add("null");
+
+            for (int i = 0; i < slots && i < drivers.Count; i++)
+            {
+                var driverId = drivers[i];
+                if (SiiValue.IsNull(driverId)) continue;
+                if (!SiiValue.IsNull(vehicles[i])) continue;
+                var driverUnit = Game.FindUnit(driverId);
+                if (driverUnit is null || driverUnit.Type != "driver_ai") continue;
+                slotsNeedingTrucks.Add((g, vehicles, i, driverId));
+            }
+        }
+
+        int before = slotsNeedingTrucks.Count;
+        int limit = maxCount.HasValue ? Math.Min(before, maxCount.Value) : before;
+        if (limit == 0)
+            return new AssignDriverTrucksResult([], targetGarages.Count, 0, before, before);
+
+        templateTruckUnit ??= ResolveTemplateTruckUnit(truckTemplateId);
+        var templateModel = new Vehicle(templateTruckUnit, Game).ModelName;
+
+        var nextNamelessId = CreateNamelessIdAllocator();
+        var newTruckUnits = new List<SiiUnit>();
+        var newPlayerTrucks = new List<(string TruckId, string ProfitLogId)>();
+        var assignments = new List<TruckAssignment>(limit);
+        var modifiedGarages = new Dictionary<string, (Garage Garage, List<string> Vehicles)>(StringComparer.Ordinal);
+
+        for (int k = 0; k < limit; k++)
+        {
+            var (garage, garageVehicles, slotIndex, driverId) = slotsNeedingTrucks[k];
+            var (truckId, profitLogId) = CloneFreshTruck(templateTruckUnit, nextNamelessId, newTruckUnits);
+
+            garageVehicles[slotIndex] = truckId;
+            modifiedGarages[garage.Unit.Id] = (garage, garageVehicles);
+            newPlayerTrucks.Add((truckId, profitLogId));
+            assignments.Add(new TruckAssignment(truckId, driverId, garage.City, slotIndex));
+        }
+
+        foreach (var (garage, garageVehicles) in modifiedGarages.Values)
+            garage.Unit.SetArray("vehicles", garageVehicles);
+
+        Game.InsertUnitsAfter(templateTruckUnit, newTruckUnits);
+        RegisterPlayerTrucks(newPlayerTrucks);
+
+        return new AssignDriverTrucksResult(
+            assignments,
+            targetGarages.Count,
+            modifiedGarages.Count,
+            before,
+            before - assignments.Count,
+            templateModel);
+    }
+
+    private List<Garage> ResolveTargetOwnedGarages(string? garageCity)
+    {
+        if (!string.IsNullOrWhiteSpace(garageCity))
+        {
+            var g = GetGarage(garageCity);
+            if (!g.Owned)
+                throw new InvalidOperationException(
+                    $"Garage '{g.City}' is not owned. Buy it first with 'ets2se garage set {g.City} <small|large>'.");
+            return [g];
+        }
+        return GetAllGarages().Where(g => g.Owned).ToList();
+    }
+
+    private SiiUnit ResolveTemplateTruckUnit(string? templateVehicleId)
+    {
+        if (!string.IsNullOrWhiteSpace(templateVehicleId))
+        {
+            var unit = Game.FindUnit(templateVehicleId);
+            if (unit is null || unit.Type != "vehicle")
+                throw new KeyNotFoundException($"Template truck '{templateVehicleId}' not found in save.");
+            return unit;
+        }
+
+        var owned = GetOwnedTrucks();
+        if (owned.Count > 0)
+        {
+            var activeId = ActiveTruckId;
+            // Prefer an existing AI fleet truck (typically lighter) over the player's customized truck.
+            var aiTruck = owned.FirstOrDefault(t => !string.Equals(t.Id, activeId, StringComparison.Ordinal));
+            return (aiTruck ?? owned[0]).Unit;
+        }
+
+        foreach (var offer in Game.UnitsOfType("used_truck_offer"))
+        {
+            var truckUnit = Game.FindUnit(offer.Get("truck"));
+            if (truckUnit is not null && truckUnit.Type == "vehicle")
+                return truckUnit;
+        }
+
+        var anyVehicle = Game.UnitsOfType("vehicle").FirstOrDefault(u => u.GetArray("accessories").Count > 0);
+        return anyVehicle
+               ?? throw new InvalidOperationException(
+                   "No template truck found in save to clone. Buy at least one truck first or pass '--truck-template <vehicleId>'.");
+    }
+
+    private Func<string> CreateNamelessIdAllocator()
+    {
+        var existing = new HashSet<string>(Game.Units.Select(u => u.Id), StringComparer.Ordinal);
+        uint seq = 1;
+        return () =>
+        {
+            while (true)
+            {
+                uint hi = (seq >> 16) & 0xFFFF;
+                uint lo = seq & 0xFFFF;
+                seq++;
+                var candidate = $"_nameless.7e5e.{hi:x4}.{lo:x4}";
+                if (existing.Add(candidate)) return candidate;
+            }
+        };
+    }
+
+    private (string TruckId, string ProfitLogId) CloneFreshTruck(
+        SiiUnit templateVehicle,
+        Func<string> nextNamelessId,
+        List<SiiUnit> newUnits)
+    {
+        var clonedAccessoryIds = new List<string>();
+        foreach (var accId in templateVehicle.GetArray("accessories"))
+        {
+            var accUnit = Game.FindUnit(accId);
+            if (accUnit is null) continue;
+            var newAccId = nextNamelessId();
+            var clonedAcc = accUnit.CloneWithId(newAccId);
+            newUnits.Add(clonedAcc);
+            clonedAccessoryIds.Add(newAccId);
+        }
+
+        var truckId = nextNamelessId();
+        var clonedVehicle = templateVehicle.CloneWithId(truckId);
+        if (clonedVehicle.IsArray("accessories"))
+            clonedVehicle.SetArray("accessories", clonedAccessoryIds);
+
+        // Make the cloned truck fresh: zero wear, full fuel, zero odometer & trip counters, current purchase time.
+        new Vehicle(clonedVehicle, Game).Repair(true);
+        clonedVehicle.TrySet("fuel_relative", "1");
+        clonedVehicle.TrySet("odometer", "0");
+        clonedVehicle.TrySet("odometer_float_part", "0");
+        clonedVehicle.TrySet("integrity_odometer", "0");
+        clonedVehicle.TrySet("integrity_odometer_float_part", "0");
+        clonedVehicle.TrySet("trip_fuel_l", "0");
+        clonedVehicle.TrySet("trip_fuel", "0");
+        clonedVehicle.TrySet("trip_recuperation_kwh", "0");
+        clonedVehicle.TrySet("trip_recuperation", "0");
+        clonedVehicle.TrySet("trip_distance_km", "0");
+        clonedVehicle.TrySet("trip_distance", "0");
+        clonedVehicle.TrySet("trip_time_min", "0");
+        clonedVehicle.TrySet("trip_time", "0");
+        clonedVehicle.TrySet("purchase_time", GameTimeMinutes.ToString(CultureInfo.InvariantCulture));
+        newUnits.Add(clonedVehicle);
+
+        var profitLogId = nextNamelessId();
+        var profitLog = new SiiUnit("profit_log", profitLogId);
+        profitLog.Attributes.Add(new SiiAttribute("stats_data", "0"));
+        profitLog.Attributes.Add(new SiiAttribute("acc_distance_free", "0"));
+        profitLog.Attributes.Add(new SiiAttribute("acc_distance_on_job", "0"));
+        profitLog.Attributes.Add(new SiiAttribute("history_age", "nil"));
+        newUnits.Add(profitLog);
+
+        return (truckId, profitLogId);
+    }
+
+    private void RegisterPlayerTrucks(IReadOnlyList<(string TruckId, string ProfitLogId)> newTrucks)
+    {
+        if (newTrucks.Count == 0) return;
+
+        var playerTrucks = Player.GetArray("trucks");
+        foreach (var (truckId, _) in newTrucks)
+            playerTrucks.Add(truckId);
+        Player.SetArray("trucks", playerTrucks);
+
+        if (Player.IsArray("truck_profit_logs"))
+        {
+            var logs = Player.GetArray("truck_profit_logs");
+            foreach (var (_, profitLogId) in newTrucks)
+                logs.Add(profitLogId);
+            Player.SetArray("truck_profit_logs", logs);
+        }
+    }
 
     // --- Active Job ---
 

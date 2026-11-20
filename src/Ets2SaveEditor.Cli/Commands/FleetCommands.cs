@@ -247,13 +247,26 @@ internal static class FleetCommands
 
     public static int Driver(CliContext ctx, string[] args)
     {
-        if (args.Length == 0) throw new CliUsageException("Usage: ets2se driver <list|max|set-xp|set-skill> ...");
+        if (args.Length == 0) throw new CliUsageException("Usage: ets2se driver <list|hire|assign-trucks|max|set-xp|set-skill> ...");
         var save = ctx.LoadSave();
         var levels = ctx.GetLevelTable();
         var sub = args[0].ToLowerInvariant();
         switch (sub)
         {
             case "list":
+                if (ctx.Options.HasFlag("available"))
+                {
+                    var available = save.GetAvailableDrivers();
+                    if (available.Count == 0) { Console.WriteLine("No available unhired AI drivers."); return 0; }
+                    foreach (var d in available)
+                    {
+                        var skills = string.Join(" ", Skills.All.Select(s => $"{s.Key}:{d.GetSkill(s)}"));
+                        Console.WriteLine($"{d.Id,-14} lvl:{d.GetLevel(levels),2} xp:{d.ExperiencePoints,7:N0}  [{skills}]");
+                    }
+                    Console.WriteLine($"Total available: {available.Count}");
+                    return 0;
+                }
+
                 var drivers = save.GetHiredDrivers();
                 if (drivers.Count == 0) { Console.WriteLine("No hired AI drivers."); return 0; }
                 foreach (var d in drivers)
@@ -262,6 +275,100 @@ internal static class FleetCommands
                     Console.WriteLine($"{d.Id,-14} home:{d.Hometown,-14} lvl:{d.GetLevel(levels),2} xp:{d.ExperiencePoints,7:N0}  [{skills}]");
                 }
                 return 0;
+
+            case "hire" or "hire-all":
+            {
+                var garageCity = ctx.Options.GetFlag("garage");
+                if (sub == "hire-all" && !string.IsNullOrWhiteSpace(garageCity))
+                    throw new CliUsageException("Cannot combine 'hire-all' with '--garage'. Use 'driver hire --garage <city>' instead.");
+
+                int? maxCount = ctx.Options.GetFlag("count") is { } c ? CliContext.ParseInt(c, "count") : null;
+                string? specificDriverId = ctx.Options.GetFlag("id");
+                bool onlyWithTruck = ctx.Options.HasFlag("only-with-truck");
+                bool spread = ctx.Options.HasFlag("spread");
+                bool maxSkills = ctx.Options.HasFlag("max-skills");
+                long? xp = ctx.Options.GetFlag("xp") is { } x ? CliContext.ParseLong(x, "xp") : null;
+                string? truckTemplateId = ctx.Options.GetFlag("truck-template");
+                bool assignTruck = ctx.Options.HasFlag("assign-truck") || !string.IsNullOrWhiteSpace(truckTemplateId);
+
+                var result = save.HireDrivers(
+                    garageCity: garageCity,
+                    maxCount: maxCount,
+                    specificDriverId: specificDriverId,
+                    onlyWithTruck: onlyWithTruck,
+                    spread: spread,
+                    maxSkills: maxSkills,
+                    experiencePoints: xp,
+                    assignTruck: assignTruck,
+                    truckTemplateId: truckTemplateId);
+
+                if (result.OwnedGaragesTargeted == 0)
+                {
+                    Console.WriteLine("No owned garages found in save.");
+                    return 0;
+                }
+
+                if (result.Assignments.Count == 0)
+                {
+                    if (result.EmptySlotsBefore == 0)
+                    {
+                        Console.WriteLine(onlyWithTruck
+                            ? "No empty driver slots with an assigned truck found in target owned garage(s)."
+                            : "No empty driver slots found in target owned garage(s).");
+                    }
+                    else
+                    {
+                        Console.WriteLine("No available unhired AI drivers left in save.");
+                    }
+                    return 0;
+                }
+
+                var extras = new List<string>();
+                if (result.TrucksAssigned > 0)
+                {
+                    var modelInfo = !string.IsNullOrWhiteSpace(result.TruckTemplateModel) ? $" ({result.TruckTemplateModel})" : "";
+                    extras.Add($"{result.TrucksAssigned} truck(s) assigned{modelInfo}");
+                }
+                if (maxSkills) extras.Add("skills maxed");
+                if (xp.HasValue) extras.Add($"XP={xp.Value:N0}");
+                var extraText = extras.Count > 0 ? $" [{string.Join(", ", extras)}]" : "";
+                var poolNote = result.AvailableDriversRemaining == 0 && result.EmptySlotsRemaining > 0
+                    ? $"driver pool exhausted; {result.EmptySlotsRemaining} empty slot(s) still open"
+                    : $"{result.EmptySlotsRemaining} empty slot(s) remaining; {result.AvailableDriversRemaining} available driver(s) left";
+
+                ctx.Commit(save,
+                    $"Hired {result.Assignments.Count} driver(s) across {result.GaragesUpdated} owned garage(s){extraText} ({poolNote}).");
+                return 0;
+            }
+
+            case "assign-trucks":
+            {
+                var garageCity = ctx.Options.GetFlag("garage");
+                int? maxCount = ctx.Options.GetFlag("count") is { } c ? CliContext.ParseInt(c, "count") : null;
+                string? truckTemplateId = ctx.Options.GetFlag("truck-template");
+
+                var result = save.AssignTrucksToDrivers(
+                    garageCity: garageCity,
+                    maxCount: maxCount,
+                    truckTemplateId: truckTemplateId);
+
+                if (result.OwnedGaragesTargeted == 0)
+                {
+                    Console.WriteLine("No owned garages found in save.");
+                    return 0;
+                }
+
+                if (result.Assignments.Count == 0)
+                {
+                    Console.WriteLine("All hired AI drivers in target owned garage(s) already have trucks assigned.");
+                    return 0;
+                }
+
+                var modelInfo = !string.IsNullOrWhiteSpace(result.TruckTemplateModel) ? $" ({result.TruckTemplateModel})" : "";
+                ctx.Commit(save,
+                    $"Assigned {result.Assignments.Count} truck(s){modelInfo} to hired AI driver(s) across {result.GaragesUpdated} owned garage(s) ({result.UnassignedDriverSlotsRemaining} driver slot(s) still without a truck).");
+                return 0;
+            }
 
             case "max":
             {

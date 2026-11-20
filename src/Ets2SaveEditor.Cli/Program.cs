@@ -108,7 +108,12 @@ static void PrintHelp()
           garage set <city> <size>   Set garage size: none | tiny | small | large
           garage buy-all <size>      Buy/upgrade garages to small or large
 
-          driver list                List hired AI drivers
+          driver list [--available]  List hired AI drivers (or --available unhired pool)
+          driver hire                Hire AI drivers into all owned garages [--all] [--garage <city>] [--count <n>]
+                                     [--id <driver.N>] [--assign-truck] [--truck-template <vehicleId>]
+                                     [--only-with-truck] [--spread] [--max-skills] [--xp <xp>]
+          driver assign-trucks       Clone & assign fresh trucks to hired AI drivers without one
+                                     [--garage <city>] [--count <n>] [--truck-template <vehicleId>]
           driver max                 Max all skills [--all | --id <driver.N>]
           driver set-xp <xp>         Set driver XP [--all | --id <driver.N>]
           driver set-skill <s> <v>   Set driver skill [--all | --id <driver.N>]

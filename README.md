@@ -37,6 +37,9 @@ dotnet run --project src/Ets2SaveEditor.Cli -- stats clear-fines
 dotnet run --project src/Ets2SaveEditor.Cli -- truck repair --all
 dotnet run --project src/Ets2SaveEditor.Cli -- truck refuel --all
 dotnet run --project src/Ets2SaveEditor.Cli -- garage set madrid large
+dotnet run --project src/Ets2SaveEditor.Cli -- driver list --available
+dotnet run --project src/Ets2SaveEditor.Cli -- driver hire --spread --assign-truck --max-skills
+dotnet run --project src/Ets2SaveEditor.Cli -- driver assign-trucks
 dotnet run --project src/Ets2SaveEditor.Cli -- driver max --all
 dotnet run --project src/Ets2SaveEditor.Cli -- map visit --all-garages
 dotnet run --project src/Ets2SaveEditor.Cli -- map discover-roads
@@ -92,6 +95,36 @@ ets2se map discover-cinematics
   - Runs `discover-companies`, `discover-roads`, `discover-photos`, and `discover-cinematics` together (respecting `--dry-run`, `--no-backup`, `--no-secret`, `--state`, `--base-only`, `--all-dlcs`, `--sync`, `--game-dir`, and `--album-file`).
 
 > **Note on DLC Filtering:** By default, `discover-roads`, `discover-photos`, and `discover-cinematics` read `dependencies` from `info.sii` so items belonging to unowned or unreleased DLCs are skipped automatically. Pass `--all-dlcs` to include everything in the catalog or `--base-only` to restrict to base-game content.
+
+## Hiring AI Drivers
+
+`ets2se` can hire available unhired AI drivers from the save's recruitment pool (`economy.driver_pool` and `economy.drivers_offer`) and assign them directly to empty slots in your owned garages:
+
+```powershell
+# Inspect available unhired AI drivers
+ets2se driver list --available
+
+# Hire drivers into all empty slots across all owned garages and automatically assign each a truck
+ets2se driver hire --assign-truck
+
+# Spread drivers round-robin across all owned garages, assign cloned trucks, and max their skills
+ets2se driver hire --spread --assign-truck --max-skills
+
+# Assign trucks to already-hired AI drivers who don't have one yet (optionally choosing a template truck from `truck list`)
+ets2se driver assign-trucks --truck-template <vehicleId>
+
+# Hire into a specific owned garage or only into slots that already have a truck
+ets2se driver hire --garage madrid --count 5 --assign-truck
+ets2se driver hire --only-with-truck --xp 95000
+```
+
+- **`driver hire`** (alias: `driver hire-all`)
+  - Automatically updates `garage.<city>.drivers`, `player.drivers`, the parallel `player` arrays (`driver_flags`, `driver_readiness_timer`, `driver_undrivable_truck_timers`), `economy.driver_pool`, `economy.drivers_offer`, and each hired `driver_ai` unit (`hometown`, `current_city`, `state`, `on_duty_timer`).
+  - With `--assign-truck` (or `--truck-template <vehicleId>`), automatically clones a fresh zero-wear, full-fuel truck (with unique SII unit IDs for the `vehicle`, all its accessories, and a `profit_log`) into each hired driver's empty `garage.<city>.vehicles` slot and registers it in `player.trucks` and `player.truck_profit_logs`.
+  - Stops cleanly if ETS2's finite driver pool runs out before every owned garage slot is filled (vanilla ETS2 includes 354 AI drivers total; omit `--spread` to fill garages sequentially to `5/5`, or pass `--spread` to distribute drivers round-robin across all owned garages; driver-expansion mods that add extra `driver_ai` units are automatically picked up).
+  - Options: `--all`, `--garage <city>`, `--count <n>`, `--id <driver.N>`, `--assign-truck`, `--truck-template <vehicleId>`, `--only-with-truck`, `--spread`, `--max-skills`, `--xp <points>`.
+- **`driver assign-trucks`**
+  - Clones and assigns fresh trucks to any already-hired AI drivers stationed in owned garages whose slot currently has no truck (`[--garage <city>] [--count <n>] [--truck-template <vehicleId>]`).
 
 ## Global Options
 

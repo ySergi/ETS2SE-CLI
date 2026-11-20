@@ -91,10 +91,25 @@
 ### AI Drivers
 | Command | Description |
 | :--- | :--- |
-| `driver list` | List hired AI drivers |
+| `driver list [--available]` | List hired AI drivers (or pass `--available` to list unhired drivers in the recruitment pool/offers) |
+| `driver hire` | Hire available AI drivers into all owned garages (alias: `hire-all`) `[--all] [--garage <city>] [--count <n>] [--id <driver.N>] [--assign-truck] [--truck-template <vehicleId>] [--only-with-truck] [--spread] [--max-skills] [--xp <xp>]` |
+| `driver assign-trucks` | Clone and assign fresh trucks to already-hired AI drivers without a truck `[--garage <city>] [--count <n>] [--truck-template <vehicleId>]` |
 | `driver max` | Max all skills `[--all \| --id <driver.N>]` |
 | `driver set-xp <xp>` | Set driver XP `[--all \| --id <driver.N>]` |
 | `driver set-skill <s> <v>` | Set driver skill `[--all \| --id <driver.N>]` |
+
+* **`driver hire` & `driver assign-trucks` parameters:**
+  * `--all`: Hire into all owned garages *(default when `--garage` is omitted)*.
+  * `--garage <city>`: Target only empty/unassigned slots of the specified owned garage (fails if the garage is not owned).
+  * `--count <n>`: Maximum number of drivers to hire or trucks to assign (`>= 1`).
+  * `--id <driver.N>`: Hire one specific unhired `driver_ai` ID into the first eligible slot (`driver hire` only).
+  * `--assign-truck`: Automatically clone and assign a fresh zero-wear, full-fuel truck into each newly hired driver's empty `garage.<city>.vehicles` slot, updating `player.trucks` and `player.truck_profit_logs` (cannot be combined with `--only-with-truck`).
+  * `--truck-template <vehicleId>`: Truck unit ID (from `truck list`) to clone when assigning trucks; implies `--assign-truck` on `driver hire`. Defaults to the first non-active owned truck, falling back to the active truck or a used-truck offer.
+  * `--only-with-truck`: Only hire drivers into garage slots that already have a truck in `garage.vehicles`.
+  * `--spread`: Distribute drivers round-robin across owned garages (1 per garage per pass) instead of filling one garage completely before moving to the next.
+  * `--max-skills`: Max all 6 skills (`adr=63`, others `6`) on newly hired drivers.
+  * `--xp <xp>`: Set `experience_points` on newly hired drivers.
+* **Driver pool limit & SII consistency:** ETS2 pre-generates a finite pool of `driver_ai` units (354 in vanilla ETS2). `driver hire` pulls unhired drivers from `economy.driver_pool` and `economy.drivers_offer`, stops cleanly if the pool is exhausted before all slots are filled, sets each driver's `hometown`/`current_city`/`state`, updates `garage.<city>.drivers`, and keeps `player.drivers` synchronized with `driver_flags`, `driver_readiness_timer`, and `driver_undrivable_truck_timers`. When assigning trucks, each cloned `vehicle`, all its accessory units, and its `profit_log` receive fresh unique `_nameless.*` IDs.
 
 ### Map Discovery
 | Command | Description |

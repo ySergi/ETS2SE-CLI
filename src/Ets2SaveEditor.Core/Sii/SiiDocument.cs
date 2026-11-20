@@ -159,4 +159,19 @@ public sealed partial class SiiDocument
         _nodes.Insert(idx + 2, unit);
         _index = null;
     }
+
+    public void InsertUnitsAfter(SiiUnit anchor, IEnumerable<SiiUnit> units)
+    {
+        int idx = _nodes.IndexOf(anchor);
+        if (idx < 0) throw new InvalidOperationException("Anchor unit not part of this document.");
+        var batch = new List<object>();
+        foreach (var unit in units)
+        {
+            batch.Add("");
+            batch.Add(unit);
+        }
+        if (batch.Count == 0) return;
+        _nodes.InsertRange(idx + 1, batch);
+        _index = null;
+    }
 }

@@ -19,6 +19,14 @@ public sealed class SiiUnit
 
     public override string ToString() => $"{Type} : {Id}";
 
+    public SiiUnit CloneWithId(string newId)
+    {
+        var copy = new SiiUnit(Type, newId, headerLine: null) { FooterLine = FooterLine };
+        foreach (var attr in Attributes)
+            copy.Attributes.Add(attr.Clone());
+        return copy;
+    }
+
     private int IndexOfKey(string key)
     {
         for (int i = 0; i < Attributes.Count; i++)
