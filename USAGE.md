@@ -127,6 +127,22 @@
 * **Viewpoint states (`--state`):** `2` = watched/completed *(default)*, `1` = discovered on map only.
 * **Photo spots backup:** Modifying `album/landmarks.sii` preserves existing entries and `screenshot_file` paths and writes a timestamped backup under `<profile>/.ets2se_backups/album/` unless `--no-backup` is passed.
 
+### Driving Academy
+| Command | Description |
+| :--- | :--- |
+| `academy status` | Show Driving Academy progress per book, chapter, stars, and rewards |
+| `academy list` | List numbered Driving Academy levels `[--book <id>] [--chapter <id>] [--completed \| --incomplete] [--filter <text>]` |
+| `academy complete [<levels...>]` | Complete specific levels, chapters/books, or all levels `[--all] [--book <id>] [--chapter <id>] [--interactive \| -i] [--stars <0..3>] [--with-prerequisites] [--duration <sec>] [--overwrite] [--skip-intros] [--no-log] [--academy-file <path>] [--sync] [--game-dir <dir>]` |
+| `academy stars <0..3> [<levels...>]` | Set star rating (`0..3`) on ranked Driving Academy levels (alias: `set-stars`) `[--all] [--book <id>] [--chapter <id>] [--duration <sec>] [--no-log]` |
+| `academy reset [<levels...>]` | Reset completion state for specific levels, books/chapters, or `--all` (aliases: `uncomplete`, `clear`) `[--all] [--book <id>] [--chapter <id>] [--clear-log]` |
+| `academy rewards` | Show Driving Academy rewards and unlock progress |
+| `academy backups` | List timestamped backups of `academy_book_states.sii` |
+| `academy restore [backupId]` | Restore the latest or a specific timestamped `academy_book_states.sii` backup |
+
+* **Selecting levels:** Pass 1-based level numbers or ranges from `academy list` (e.g. `1-5`, `1..10`, `12`), full IDs (`academy.scenario.book1.1_01`), short IDs (`book1.1_01`, `book2.slalom.nt`, `book3.parallel`), unique suffixes (`slalom.nt`, `finex`), `--book <book1|book2|book3|1|2|3>`, `--chapter <book1.2|1.2>`, `--all`, or `--interactive` (`-i`).
+* **Star ratings (`--stars`):** Applies to star-ranked books (e.g. Book 2: Truck Driving Proficiency). Defaults to max stars (`3`), unlocking both standard completion and 3-star rewards.
+* **Backups:** Mutating commands target `<profile>/academy/academy_book_states.sii` (or `--academy-file <path>`) and automatically save a timestamped backup under `<profile>/.ets2se_backups/academy/<timestamp>/` unless `--no-backup` is passed.
+
 ### Raw SII & System Utilities
 | Command | Description |
 | :--- | :--- |
@@ -138,4 +154,4 @@
 | `tools status\|install` | Check or install `SII_Decrypt` & `scs_extractor` |
 | `catalog status` | Show cached game catalog, photo spots, cinematics, and map item counts |
 | `catalog sync` | Extract game definitions and map sectors via `scs_extractor` `[--with-dlcs] [--no-maps] [--game-dir <dir>]` |
-| `catalog cities\|photos\|cinematics` | Query cached cities, photo spots, or cinematic locations `[--filter <text>]` |
+| `catalog cities\|photos\|cinematics\|academy` | Query cached cities, photo spots, cinematic locations, or Driving Academy levels `[--filter <text>]` |

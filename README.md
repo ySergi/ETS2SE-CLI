@@ -46,6 +46,9 @@ dotnet run --project src/Ets2SaveEditor.Cli -- map discover-roads
 dotnet run --project src/Ets2SaveEditor.Cli -- map discover-photos
 dotnet run --project src/Ets2SaveEditor.Cli -- map discover-cinematics
 dotnet run --project src/Ets2SaveEditor.Cli -- map discover-all
+dotnet run --project src/Ets2SaveEditor.Cli -- academy status
+dotnet run --project src/Ets2SaveEditor.Cli -- academy list
+dotnet run --project src/Ets2SaveEditor.Cli -- academy complete --all
 ```
 
 ## Map, Photo Spots & Cinematic Discovery
@@ -125,6 +128,48 @@ ets2se driver hire --only-with-truck --xp 95000
   - Options: `--all`, `--garage <city>`, `--count <n>`, `--id <driver.N>`, `--assign-truck`, `--truck-template <vehicleId>`, `--only-with-truck`, `--spread`, `--max-skills`, `--xp <points>`.
 - **`driver assign-trucks`**
   - Clones and assigns fresh trucks to any already-hired AI drivers stationed in owned garages whose slot currently has no truck (`[--garage <city>] [--count <n>] [--truck-template <vehicleId>]`).
+
+## Driving Academy
+
+`ets2se` can inspect, complete, star-rate, or reset **Driving Academy** levels in `<profile>\academy\academy_book_states.sii` using definitions extracted from `def.scs` (`def/academy/`):
+
+```powershell
+# Inspect per-book/chapter progress, star ratings, and reward unlock status
+ets2se academy status
+
+# List all numbered levels (filter by --book, --chapter, --completed, --incomplete, or --filter)
+ets2se academy list
+ets2se academy list --book book2 --incomplete
+
+# Complete specific levels by short ID, suffix, number, range, chapter, or book
+ets2se academy complete book1.1_01 book1.1_02
+ets2se academy complete 1-5 slalom.nt parallel
+ets2se academy complete --chapter book1.3
+ets2se academy complete --book book2 --stars 3
+ets2se academy complete book1.3_20 --with-prerequisites
+
+# Interactive level picker in the terminal
+ets2se academy complete --interactive
+
+# Complete all Driving Academy levels across all books (max 3 stars on ranked books)
+ets2se academy complete --all
+
+# Adjust star ratings (0..3) on ranked levels (Book 2: Truck Driving Proficiency)
+ets2se academy stars 3 --book book2
+ets2se academy stars 2 book2.slalom.nt book2.reverse.parking
+
+# View reward unlock progress (paint jobs, cabin cones, Frankie the dachshund)
+ets2se academy rewards
+
+# Reset specific levels, a chapter/book, or all progress (timestamped backup created automatically)
+ets2se academy reset book2.slalom.nt
+ets2se academy reset --all
+ets2se academy backups
+ets2se academy restore
+```
+
+- **How it works:** Writes valid ETS2 `academy_save_container` (v105), `academy_book_state`, `academy_scenario_result` (v104 with exact per-scenario `goal_ids`, `goal_values`, `goal_success`, `scenario_score`, and `scenario_rank`), and `academy_log` start/end entries into `<profile>\academy\academy_book_states.sii`.
+- **Safe & reversible:** Preserves existing truck selections and completed results (upgrading ranked levels if a higher star count is requested; pass `--overwrite` to rewrite existing entries), supports `--dry-run` / `--no-backup`, and saves timestamped backups under `<profile>\.ets2se_backups\academy\<timestamp>\`.
 
 ## Global Options
 

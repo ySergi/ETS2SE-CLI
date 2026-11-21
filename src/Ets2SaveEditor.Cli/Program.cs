@@ -29,6 +29,7 @@ try
         "garage" => FleetCommands.GarageCmd(ctx, rest),
         "driver" => FleetCommands.Driver(ctx, rest),
         "map" => FleetCommands.Map(ctx, rest),
+        "academy" => AcademyCommands.Academy(ctx, rest),
         "raw" => SystemCommands.Raw(ctx, rest),
         "backup" => SystemCommands.Backup(ctx, rest),
         "tools" => await SystemCommands.ToolsAsync(ctx, rest),
@@ -127,6 +128,17 @@ static void PrintHelp()
           map discover-cinematics    Discover all cinematic viewpoints [--state 1|2] [--all-dlcs|--base-only] [--sync]
           map discover-all           Discover all companies, roads, photo spots, and cinematic locations
 
+          academy status             Show Driving Academy progress per book, chapter, stars, and rewards
+          academy list               List Driving Academy levels [--book <id>] [--chapter <id>] [--completed|--incomplete] [--filter <text>]
+          academy complete [<...>]   Complete specific levels, books/chapters, or all levels
+                                     [--all] [--book <id>] [--chapter <id>] [--interactive|-i] [--stars <0..3>]
+                                     [--with-prerequisites] [--duration <sec>] [--overwrite] [--skip-intros]
+                                     [--no-log] [--academy-file <path>] [--sync] [--game-dir <dir>]
+          academy stars <0..3> <...> Set star rating (0..3) on ranked Driving Academy levels [--all|--book|--chapter]
+          academy reset [<...>]      Reset completion state for specific levels, books/chapters, or --all [--clear-log]
+          academy rewards            Show Driving Academy rewards and unlock progress
+          academy backups|restore    List or restore timestamped academy_book_states.sii backups
+
           raw find <type>            Find unit IDs of an SII type [--limit N]
           raw get <unitId> [attr]    Print a unit or attribute
           raw set <unitId> <k> <v>   Set an SII attribute [--add]
@@ -136,6 +148,6 @@ static void PrintHelp()
           tools status|install       Check or install SII_Decrypt & scs_extractor
           catalog status             Show cached game catalog & map item counts
           catalog sync               Extract game definitions & maps [--with-dlcs] [--no-maps] [--game-dir <dir>]
-          catalog cities|photos|cinematics  Query cached definitions [--filter <text>]
+          catalog cities|photos|cinematics|academy  Query cached definitions [--filter <text>]
         """);
 }

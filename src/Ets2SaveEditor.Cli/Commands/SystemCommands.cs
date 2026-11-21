@@ -139,7 +139,7 @@ internal static class SystemCommands
 
     public static int Catalog(CliContext ctx, string[] args)
     {
-        if (args.Length == 0) throw new CliUsageException("Usage: ets2se catalog <status|sync|cities|photos|cinematics> ...");
+        if (args.Length == 0) throw new CliUsageException("Usage: ets2se catalog <status|sync|cities|photos|cinematics|academy> ...");
         var sub = args[0].ToLowerInvariant();
         switch (sub)
         {
@@ -163,6 +163,9 @@ internal static class SystemCommands
                 Console.WriteLine($"Photo spots:   {cached.PhotoSpots?.Count ?? 0}");
                 Console.WriteLine($"Cinematics:    {cached.CinematicLocations?.Count ?? 0}");
                 Console.WriteLine($"Map items:     {mapItems:N0}");
+                Console.WriteLine(cached.Academy is { } ac
+                    ? $"Academy:       {ac.Books.Count} books, {ac.Chapters.Count} chapters, {ac.PlayableScenarios.Count} levels, {ac.Rewards.Count} rewards"
+                    : "Academy:       not cached (run 'ets2se catalog sync')");
                 return 0;
             }
 
@@ -176,7 +179,8 @@ internal static class SystemCommands
                 var data = GameCatalog.SyncFromGame(extractor, gameDir, withDlcs, log: Console.WriteLine, includeMapSectors: withMaps);
                 Console.WriteLine(
                     $"Synced catalog: {data.Cities.Count} cities, {data.Companies.Count} companies, {data.TruckModels.Count} trucks, " +
-                    $"{data.PhotoSpots?.Count ?? 0} photo spots, {data.CinematicLocations?.Count ?? 0} cinematics, {data.MapItemCount:N0} map items.");
+                    $"{data.PhotoSpots?.Count ?? 0} photo spots, {data.CinematicLocations?.Count ?? 0} cinematics, {data.MapItemCount:N0} map items, " +
+                    $"{data.Academy?.PlayableScenarios.Count ?? 0} academy levels.");
                 return 0;
             }
 
@@ -228,6 +232,34 @@ internal static class SystemCommands
                 foreach (var v in list)
                     Console.WriteLine($"{v.Id,-20} {v.DlcId,-16} {v.ObjectUid,-20} {v.Name}");
                 Console.WriteLine($"Total: {list.Count}");
+                return 0;
+            }
+
+            case "academy":
+            {
+                var cached = GameCatalog.TryLoadCached()
+                             ?? throw new InvalidOperationException("Catalog not synced yet. Run 'ets2se catalog sync' first.");
+                var ac = cached.Academy
+                         ?? throw new InvalidOperationException("Driving Academy definitions not cached yet. Run 'ets2se catalog sync' first.");
+                var filter = ctx.Options.GetFlag("filter");
+                var chapterById = ac.Chapters.ToDictionary(c => c.Id, StringComparer.OrdinalIgnoreCase);
+                var playable = ac.PlayableScenarios;
+                int shown = 0;
+                for (int i = 0; i < playable.Count; i++)
+                {
+                    var sc = playable[i];
+                    var chShort = sc.ChapterId is not null && chapterById.TryGetValue(sc.ChapterId, out var ch) ? ch.ShortId : "-";
+                    if (!string.IsNullOrEmpty(filter)
+                        && !sc.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                        && !sc.ShortId.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                        && !chShort.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var rankInfo = sc.HasStars ? $"max {sc.MaxRank}*" : "pass";
+                    Console.WriteLine($"{i + 1,2}. {chShort,-8} {sc.ShortId,-36} {rankInfo,-7} goals:{sc.Goals.Length,2}");
+                    shown++;
+                }
+                Console.WriteLine($"Total: {shown}");
                 return 0;
             }
 

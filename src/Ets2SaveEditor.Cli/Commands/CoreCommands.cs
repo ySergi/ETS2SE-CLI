@@ -76,6 +76,34 @@ internal static class CoreCommands
         }
         var photoText = photoCount.HasValue ? $", {photoCount.Value} photo spots" : "";
         Console.WriteLine($"  Discovered:  {save.DiscoveredItems.Count:N0} map items, {save.DiscoveredCutscenes.Count} cinematic viewpoints{photoText}");
+        if (PhotoAlbum.TryResolveProfileDirFromSave(save.SaveDirectory) is { } academyProfDir)
+        {
+            var acPath = Path.Combine(academyProfDir, "academy", DrivingAcademy.BookStatesFileName);
+            try
+            {
+                var cachedCatalog = GameCatalog.TryLoadCached()?.Academy;
+                if (File.Exists(acPath))
+                {
+                    var states = DrivingAcademy.Load(acPath, ctx.TryDecryptTool()).GetScenarioStates();
+                    if (cachedCatalog is { PlayableScenarios.Count: > 0 })
+                    {
+                        var playable = cachedCatalog.PlayableScenarios;
+                        int done = playable.Count(s => states.TryGetValue(s.Id, out var st) && st.IsCompleted);
+                        Console.WriteLine($"  Academy:     {done} / {playable.Count} levels completed");
+                    }
+                    else
+                    {
+                        int done = states.Values.Count(st => st.IsCompleted);
+                        Console.WriteLine($"  Academy:     {done} scenario result(s) completed");
+                    }
+                }
+                else if (cachedCatalog is { PlayableScenarios.Count: > 0 })
+                {
+                    Console.WriteLine($"  Academy:     0 / {cachedCatalog.PlayableScenarios.Count} levels completed");
+                }
+            }
+            catch { /* non-fatal in info summary */ }
+        }
         Console.WriteLine($"  Deliveries:  {save.DeliveryLogCount} logged | Undamaged streak: {save.UndamagedCargoRow} | Max clean km: {save.CleanDistanceMax:N0}");
         Console.WriteLine($"  Distance:    {save.TotalTruckDistanceKm:N0} km | Fuel: {save.TotalFuelLitres:N0} L ({save.TotalFuelPrice:N0} EUR)");
         Console.WriteLine($"  Offences:    {police.EntryCount} recent log entries, {police.TotalFines:N0} EUR total fines (red lights: {save.RedLightFineCount}, crashes: {save.AiCrashCount})");

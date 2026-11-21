@@ -31,7 +31,8 @@ public sealed record GameCatalogData(
     IReadOnlyList<string> TruckModels,
     IReadOnlyList<PhotoSpotEntry>? PhotoSpots = null,
     IReadOnlyList<CinematicLocationEntry>? CinematicLocations = null,
-    int MapItemCount = 0);
+    int MapItemCount = 0,
+    AcademyCatalogData? Academy = null);
 
 /// <summary>
 /// Extracts ETS2's def.scs (and optionally map DLC archives) via scs_extractor.exe
@@ -163,6 +164,7 @@ public static partial class GameCatalog
             var cinematicLocations = new Dictionary<string, CinematicLocationEntry>(StringComparer.OrdinalIgnoreCase);
             var mapItems = new Dictionary<ulong, MapItemEntry>();
             int[] levelXp = LevelTable.DefaultLevelXp;
+            AcademyCatalogData? academy = null;
 
             void ProcessArchive(string scsPath, string label, bool readDefs, bool readMaps)
             {
@@ -215,6 +217,9 @@ public static partial class GameCatalog
                                 foreach (var v in ParseCinematicLocationsSui(f, label))
                                     cinematicLocations[v.Id] = v;
                         }
+
+                        if (academy is null)
+                            academy = AcademyCatalog.ParseFromExtractedDefDir(outDir);
                     }
 
                     if (readMaps)
@@ -279,7 +284,8 @@ public static partial class GameCatalog
                 trucks.OrderBy(t => t, StringComparer.Ordinal).ToList(),
                 photoSpots.Values.OrderBy(p => p.Id, StringComparer.Ordinal).ToList(),
                 cinematicLocations.Values.OrderBy(v => v.Id, StringComparer.Ordinal).ToList(),
-                mapItemCount);
+                mapItemCount,
+                academy);
 
             File.WriteAllText(
                 CacheJsonPath(targetCache),
@@ -367,6 +373,54 @@ public static partial class GameCatalog
             }
 
             return list;
+        }
+        finally
+        {
+            try { Directory.Delete(workRoot, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// Extracts only <c>def.scs</c> to parse Driving Academy books, chapters, scenarios, and rewards,
+    /// preserving any already-cached DLC cities, photo spots, cinematics, and map items.
+    /// </summary>
+    public static AcademyCatalogData SyncAcademyOnly(
+        ScsExtractorTool extractor,
+        string gameDir,
+        string? cacheDir = null,
+        Action<string>? log = null)
+    {
+        var defPath = Path.Combine(gameDir, "def.scs");
+        if (!File.Exists(defPath))
+            throw new FileNotFoundException("def.scs not found in ETS2 directory.", defPath);
+
+        var targetCache = cacheDir ?? DefaultCacheDir;
+        var existing = TryLoadCached(targetCache);
+        if (existing is null)
+        {
+            var full = SyncFromGame(extractor, gameDir, includeMapDlcs: false, cacheDir: targetCache, log: log, includeMapSectors: false);
+            return full.Academy
+                   ?? throw new InvalidOperationException("No Driving Academy definitions found under def/academy/ in def.scs.");
+        }
+
+        Directory.CreateDirectory(targetCache);
+        var workRoot = Path.Combine(Path.GetTempPath(), $"ets2se_academy_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workRoot);
+
+        try
+        {
+            log?.Invoke("Extracting def.scs for Driving Academy definitions...");
+            extractor.Extract(defPath, workRoot);
+
+            var academy = AcademyCatalog.ParseFromExtractedDefDir(workRoot)
+                          ?? throw new InvalidOperationException("No Driving Academy definitions found under def/academy/ in def.scs.");
+
+            var updated = existing with { Academy = academy };
+            File.WriteAllText(
+                CacheJsonPath(targetCache),
+                JsonSerializer.Serialize(updated, new JsonSerializerOptions { WriteIndented = true }));
+
+            return academy;
         }
         finally
         {

@@ -22,6 +22,9 @@ internal sealed class CliOptions
     public string? GetFlag(string name) =>
         Flags.TryGetValue(name, out var list) && list.Count > 0 ? list[^1] : null;
 
+    public IReadOnlyList<string> GetFlags(string name) =>
+        Flags.TryGetValue(name, out var list) ? list : [];
+
     public static CliOptions Parse(string[] args)
     {
         var opt = new CliOptions();
@@ -46,6 +49,7 @@ internal sealed class CliOptions
             if (a == "--tools-dir") { opt.ToolsDir = NextVal(args, ref i, a); continue; }
             if (a == "--no-backup") { opt.NoBackup = true; continue; }
             if (a == "--dry-run") { opt.DryRun = true; continue; }
+            if (a == "-i") { AddFlag(opt, "interactive", ""); continue; }
 
             if (a.StartsWith("--", StringComparison.Ordinal))
             {
@@ -57,9 +61,8 @@ internal sealed class CliOptions
                 else
                 {
                     var key = a[2..];
-                    // Consume the following token as value unless it's absent or looks like another flag
-                    // (except negative numbers like -5000).
-                    if (i + 1 < args.Length && !LooksLikeFlag(args[i + 1]))
+                    // Known boolean flags never consume a following positional argument.
+                    if (!BooleanFlags.Contains(key) && i + 1 < args.Length && !LooksLikeFlag(args[i + 1]))
                         AddFlag(opt, key, args[++i]);
                     else
                         AddFlag(opt, key, "");
@@ -71,6 +74,15 @@ internal sealed class CliOptions
         }
         return opt;
     }
+
+    private static readonly HashSet<string> BooleanFlags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "all", "interactive", "with-prerequisites", "overwrite", "force", "skip-intros",
+        "no-log", "completed", "incomplete", "clear-log", "sync", "with-dlcs", "no-maps",
+        "base-only", "all-dlcs", "no-secret", "keep-permanent", "owned", "available",
+        "assign-truck", "only-with-truck", "spread", "max-skills", "add",
+        "from-visited", "all-garages", "all-companies",
+    };
 
     private static bool LooksLikeFlag(string s) =>
         s.Length >= 2 && s[0] == '-' && !char.IsAsciiDigit(s[1]);
