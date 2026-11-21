@@ -83,12 +83,14 @@ public static class AchievementEditor
         ["sc_oresund_bridge"] = "eut2_north",
         ["ib_cutscenes"] = "eut2_iberia",
         ["ib_conejera"] = "eut2_iberia",
-        ["bs_orient_express"] = "eut2_balkan_e",
-        ["bs_ferry"] = "eut2_balkan_e",
-        ["bw_cutscenes"] = "eut2_balkan_w",
+        ["be_border_crossings"] = "eut2_balkane",
+        ["be_blke_ferry"] = "eut2_balkane",
+        ["be_landmarks"] = "eut2_balkane",
+        ["bw_cutscenes"] = "eut2_balkanw",
         ["gr_cutscenes"] = "eut2_greece",
-        ["nh_cutscenes"] = "eut2_polar",
-        ["nh_ferry"] = "eut2_polar",
+        ["pc_cutscenes"] = "eut2_nordic",
+        ["nh_cutscenes"] = "eut2_nordic",
+        ["nh_ferry"] = "eut2_nordic",
         ["is_cutscenes"] = "eut2_iceland",
         ["ic_cutscenes"] = "eut2_iceland",
     };
@@ -119,6 +121,7 @@ public static class AchievementEditor
         ["kosovo"] = ["pristina"],
         ["montenegro"] = ["podgorica", "niksic", "bijelo_polje"],
         ["north_macedonia"] = ["skopje", "bitola"],
+        ["macedonia"] = ["skopje", "bitola"],
         ["serbia"] = ["beograd", "novi_sad", "nis", "kragujevac"],
         ["slovenia"] = ["ljubljana", "maribor", "koper", "novo_mesto"],
     };
@@ -609,6 +612,15 @@ public static class AchievementEditor
             return false;
         if (!string.IsNullOrWhiteSpace(spec.ExcludedTargetCity)
             && d.TargetCity.Equals(spec.ExcludedTargetCity, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(spec.ExcludedSourceCountry)
+            && cityCountry.TryGetValue(d.SourceCity, out var exSrcCo)
+            && exSrcCo.Equals(spec.ExcludedSourceCountry, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!string.IsNullOrWhiteSpace(spec.ExcludedTargetCountry)
+            && cityCountry.TryGetValue(d.TargetCity, out var exDstCo)
+            && exDstCo.Equals(spec.ExcludedTargetCountry, StringComparison.OrdinalIgnoreCase))
             return false;
 
         if (!string.IsNullOrWhiteSpace(spec.SourceCountry))
@@ -1392,12 +1404,14 @@ public static class AchievementEditor
             // Find distinct candidate cities/countries matching constraints
             var targetCountry = roleIsSource ? spec.SourceCountry : spec.TargetCountry;
             var excludedCity = roleIsSource ? spec.ExcludedSourceCity : spec.ExcludedTargetCity;
+            var excludedCountry = roleIsSource ? spec.ExcludedSourceCountry : spec.ExcludedTargetCountry;
             var compPrefix = roleIsSource ? spec.SourceCompany : spec.TargetCompany;
 
             var candidateCities = companies
                 .Where(c =>
                     (string.IsNullOrWhiteSpace(targetCountry) || c.Country.Equals(targetCountry, StringComparison.OrdinalIgnoreCase))
                     && (string.IsNullOrWhiteSpace(excludedCity) || !c.City.Equals(excludedCity, StringComparison.OrdinalIgnoreCase))
+                    && (string.IsNullOrWhiteSpace(excludedCountry) || !c.Country.Equals(excludedCountry, StringComparison.OrdinalIgnoreCase))
                     && MatchesCompanyConstraint(c.FullId, compPrefix))
                 .ToList();
 
@@ -1405,7 +1419,8 @@ public static class AchievementEditor
             var fallbackCities = cityCountry
                 .Where(kv =>
                     (string.IsNullOrWhiteSpace(targetCountry) || kv.Value.Equals(targetCountry, StringComparison.OrdinalIgnoreCase))
-                    && (string.IsNullOrWhiteSpace(excludedCity) || !kv.Key.Equals(excludedCity, StringComparison.OrdinalIgnoreCase)))
+                    && (string.IsNullOrWhiteSpace(excludedCity) || !kv.Key.Equals(excludedCity, StringComparison.OrdinalIgnoreCase))
+                    && (string.IsNullOrWhiteSpace(excludedCountry) || !kv.Value.Equals(excludedCountry, StringComparison.OrdinalIgnoreCase)))
                 .Select(kv => new CompanyInfo(BuildFallbackCompanyId(compPrefix, kv.Key), ExtractCompanyName(compPrefix) ?? "eurogoodies", kv.Key, kv.Value))
                 .ToList();
 
@@ -1460,10 +1475,10 @@ public static class AchievementEditor
 
             string srcComp = isSpecial
                 ? ""
-                : ResolveConcreteCompany(spec.SourceCompany, spec.SourceCity, spec.SourceCountry, spec.ExcludedSourceCity, companies, cityCountry, i);
+                : ResolveConcreteCompany(spec.SourceCompany, spec.SourceCity, spec.SourceCountry, spec.ExcludedSourceCity, spec.ExcludedSourceCountry, companies, cityCountry, i);
             string dstComp = isSpecial
                 ? ""
-                : ResolveConcreteCompany(spec.TargetCompany, spec.TargetCity, spec.TargetCountry, spec.ExcludedTargetCity, companies, cityCountry, i + 7);
+                : ResolveConcreteCompany(spec.TargetCompany, spec.TargetCity, spec.TargetCountry, spec.ExcludedTargetCity, spec.ExcludedTargetCountry, companies, cityCountry, i + 7);
 
             string cargo = ResolveConcreteCargo(spec.Cargo, spec.CargoGroup, cargosByGroup, i);
             usedCargosOut.Add(cargo);
@@ -1520,6 +1535,7 @@ public static class AchievementEditor
         string? cityConstraint,
         string? countryConstraint,
         string? excludedCity,
+        string? excludedCountry,
         List<CompanyInfo> companies,
         Dictionary<string, string> cityCountry,
         int salt)
@@ -1532,7 +1548,8 @@ public static class AchievementEditor
             MatchesCompanyConstraint(c.FullId, companyConstraint)
             && (string.IsNullOrWhiteSpace(cityConstraint) || c.City.Equals(cityConstraint, StringComparison.OrdinalIgnoreCase))
             && (string.IsNullOrWhiteSpace(countryConstraint) || c.Country.Equals(countryConstraint, StringComparison.OrdinalIgnoreCase))
-            && (string.IsNullOrWhiteSpace(excludedCity) || !c.City.Equals(excludedCity, StringComparison.OrdinalIgnoreCase)))
+            && (string.IsNullOrWhiteSpace(excludedCity) || !c.City.Equals(excludedCity, StringComparison.OrdinalIgnoreCase))
+            && (string.IsNullOrWhiteSpace(excludedCountry) || !c.Country.Equals(excludedCountry, StringComparison.OrdinalIgnoreCase)))
             .ToList();
 
         if (filtered.Count > 0)
@@ -1545,7 +1562,11 @@ public static class AchievementEditor
               && cityCountry.FirstOrDefault(kv => kv.Value.Equals(countryConstraint, StringComparison.OrdinalIgnoreCase)
                                                   && !kv.Key.Equals(excludedCity, StringComparison.OrdinalIgnoreCase)).Key is { Length: > 0 } matchedCity
                 ? matchedCity
-                : "berlin";
+                : cityCountry.FirstOrDefault(kv => !kv.Key.Equals(excludedCity, StringComparison.OrdinalIgnoreCase)
+                                                   && (string.IsNullOrWhiteSpace(excludedCountry)
+                                                       || !kv.Value.Equals(excludedCountry, StringComparison.OrdinalIgnoreCase))).Key is { Length: > 0 } anyCity
+                    ? anyCity
+                    : "berlin";
 
         return BuildFallbackCompanyId(companyConstraint, city);
     }

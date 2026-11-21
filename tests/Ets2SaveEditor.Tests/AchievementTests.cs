@@ -534,4 +534,96 @@ public class AchievementTests : IDisposable
         Assert.Equal("visited_cities", feats[1].AttributeName);
         Assert.Equal(25, feats[1].Limit);
     }
+
+    [Fact]
+    public void DlcIdMapping_MatchesInfoSiiDependenciesAndExcludedTargetCountry()
+    {
+        const string sii = """
+            SiiNunit
+            {
+            # -- DLC Road to the Black Sea --
+            achievement_trigger_data : .achievement.be_land
+            {
+            	event_name: trig_activat
+            	initial_check: true
+            	trigger_param: be_landmarks
+            	target: 5
+            	achievement_name: be_landmarks
+            	steam_id: be_landmarks
+            }
+            # -- DLC West Balkans --
+            achievement_trigger_data : .achievement.bw_cut
+            {
+            	event_name: trig_activat
+            	initial_check: true
+            	trigger_param: bw_cutscenes
+            	target: 8
+            	achievement_name: bw_cutscenes
+            	steam_id: bw_cutscenes
+            }
+            # -- DLC Polar Circle --
+            achievement_delivery : .achievement.pc_salm_fill
+            {
+            	event_name: job_done
+            	initial_check: true
+            	condition: .pc_salm_fill.condition
+            	target: 2
+            	achievement_name: pc_salm_fillet
+            	steam_id: pc_salm_fillet
+            }
+            achievement_unique_delivery_points : .pc_salm_fill.condition
+            {
+            	condition: .pc_salm_fill.unique
+            	role: target
+            	unique: country
+            	count: 2
+            }
+            achievement_delivery_each : .pc_salm_fill.unique
+            {
+            	list[]: .pc_salm_fill.cargo
+            	list[]: .pc_salm_fill.source
+            	list[]: .pc_salm_fill.target
+            }
+            achievement_delivery_cargo : .pc_salm_fill.cargo
+            {
+            	cargo_name: salm_fillet
+            }
+            achievement_delivery_point_city : .pc_salm_fill.source
+            {
+            	role: source
+            	city_name: tromso
+            }
+            achievement_delivery_not : .pc_salm_fill.target
+            {
+            	condition: .pc_salm_fill.target.not
+            }
+            achievement_delivery_point_country : .pc_salm_fill.target.not
+            {
+            	role: target
+            	country_name: norway
+            }
+            }
+            """;
+
+        var entries = AchievementCatalog.ParseAchievementSii(sii);
+        Assert.Equal("eut2_balkane", entries.Single(e => e.Id == "be_landmarks").DlcId);
+        Assert.Equal("eut2_balkanw", entries.Single(e => e.Id == "bw_cutscenes").DlcId);
+        var salm = entries.Single(e => e.Id == "pc_salm_fillet");
+        Assert.Equal("eut2_nordic", salm.DlcId);
+        Assert.Equal("norway", salm.DeliverySpecs[0].ExcludedTargetCountry);
+
+        // Verify info.sii active DLC filter includes all 3 DLCs
+        var activeDlcs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "base", "eut2_balkane", "eut2_balkanw", "eut2_nordic" };
+        var selected = AchievementCatalog.ResolveSelection(
+            new AchievementCatalogData(entries, [], []), all: true, [], [], allowedDlcs: activeDlcs);
+        Assert.Equal(3, selected.Count);
+
+        // Verify Apply delivers salm_fillet from tromso to 2 non-Norway countries
+        var saveDir = WriteSyntheticSave(garageCount: 2);
+        var save = Ets2Save.LoadFromSaveDirectory(saveDir, null);
+        AchievementEditor.Apply(save, selected, new AchievementCatalogData(entries, [], []));
+        var post = AchievementEditor.Evaluate(save, new AchievementCatalogData(entries, [], []));
+        Assert.All(post, s => Assert.True(s.IsReady, $"Expected {s.Entry.Id} ready, got {s.Progress}"));
+    }
 }

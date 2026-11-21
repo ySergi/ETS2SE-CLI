@@ -19,6 +19,8 @@ public sealed record AchievementDeliverySpec(
     string? TargetCountry = null,
     string? ExcludedSourceCity = null,
     string? ExcludedTargetCity = null,
+    string? ExcludedSourceCountry = null,
+    string? ExcludedTargetCountry = null,
     string? Cargo = null,
     string? CargoGroup = null,
     string? SpecialRoute = null,
@@ -92,11 +94,11 @@ public static partial class AchievementCatalog
         ["DLC Italy"] = "eut2_it",
         ["DLC North"] = "eut2_north",
         ["DLC Balt"] = "eut2_balt",
-        ["DLC Road to the Black Sea"] = "eut2_balkan_e",
+        ["DLC Road to the Black Sea"] = "eut2_balkane",
         ["DLC Iberia"] = "eut2_iberia",
-        ["DLC West Balkans"] = "eut2_balkan_w",
+        ["DLC West Balkans"] = "eut2_balkanw",
         ["DLC Greece"] = "eut2_greece",
-        ["DLC Polar Circle"] = "eut2_polar",
+        ["DLC Polar Circle"] = "eut2_nordic",
         ["DLC Iceland"] = "eut2_iceland",
         ["DLC Heavy Cargo"] = "eut2_heavy_cargo",
         ["DLC Special Transport"] = "eut2_oversize",
@@ -434,18 +436,20 @@ public static partial class AchievementCatalog
                 }
                 else
                 {
-                    // jobs_20k_xp: 20,000 XP within <= 10,000 km -> 5 deliveries of 1,000 km & 4,500 XP each
+                    // jobs_20k_xp: 20,000 XP within <= 10,000 km -> 5 deliveries of 500 km & 4,200 XP each (2,500 km total, leaving 7,500 km headroom)
                     int maxDist = ParseInt(root.GetScalar("sum_distance_max")) ?? 10000;
                     int jobs = 5;
-                    int perDist = Math.Max(300, Math.Min(1200, (maxDist - 500) / jobs));
-                    int perXp = (int)Math.Ceiling((target + 500) / (double)jobs);
+                    int perDist = Math.Max(300, Math.Min(500, (maxDist - 500) / jobs));
+                    int perXp = (int)Math.Ceiling((target + 1000) / (double)jobs);
                     for (int i = 0; i < jobs; i++)
                     {
                         specs.Add(new AchievementDeliverySpec(
+                            Cargo: "dozer",
                             DistanceKm: perDist,
                             XpEarned: perXp,
                             UnloadDifficulty: 3,
-                            Autoparking: false));
+                            Autoparking: false,
+                            CargoMassKg: 55000f));
                     }
                 }
                 break;
@@ -583,12 +587,20 @@ public static partial class AchievementCatalog
                 if (!string.IsNullOrWhiteSpace(cid) && byId.TryGetValue(cid, out var child))
                 {
                     var city = child.GetScalar("city_name");
+                    var country = child.GetScalar("country_name");
                     var role = child.GetScalar("role");
+                    bool isSource = "source".Equals(role, StringComparison.OrdinalIgnoreCase);
                     if (!string.IsNullOrWhiteSpace(city))
                     {
-                        if ("source".Equals(role, StringComparison.OrdinalIgnoreCase))
-                            return spec with { ExcludedSourceCity = city };
-                        return spec with { ExcludedTargetCity = city };
+                        spec = isSource
+                            ? spec with { ExcludedSourceCity = city }
+                            : spec with { ExcludedTargetCity = city };
+                    }
+                    if (!string.IsNullOrWhiteSpace(country))
+                    {
+                        spec = isSource
+                            ? spec with { ExcludedSourceCountry = country }
+                            : spec with { ExcludedTargetCountry = country };
                     }
                 }
                 return spec;

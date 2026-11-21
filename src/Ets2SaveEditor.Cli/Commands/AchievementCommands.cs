@@ -244,6 +244,7 @@ internal static class AchievementCommands
                 Console.WriteLine($"Driving Academy updated: {academyResult.NewlyCompleted} completed, {academyResult.Upgraded} upgraded in '{academy.FilePath}'.");
                 if (ab is not null)
                     Console.WriteLine($"Academy backup saved: {ab.Id} ({ab.Directory})");
+                Console.WriteLine("Note: Open the Driving Academy screen in-game once so ETS2 evaluates academy achievements.");
             }
         }
 

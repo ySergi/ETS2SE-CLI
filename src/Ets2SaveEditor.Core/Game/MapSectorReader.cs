@@ -122,7 +122,21 @@ public static class DlcGuardTable
         if (string.IsNullOrWhiteSpace(dlcId) || dlcId.Equals("base", StringComparison.OrdinalIgnoreCase))
             return true;
         if (activeDlcIds is null) return true;
-        return activeDlcIds.Contains(dlcId);
+        if (activeDlcIds.Contains(dlcId)) return true;
+
+        // Handle known ETS2 info.sii dependency ID aliases vs archive/sui naming
+        return dlcId.ToLowerInvariant() switch
+        {
+            "eut2_balkan_e" => activeDlcIds.Contains("eut2_balkane"),
+            "eut2_balkane" => activeDlcIds.Contains("eut2_balkan_e"),
+            "eut2_balkan_w" => activeDlcIds.Contains("eut2_balkanw"),
+            "eut2_balkanw" => activeDlcIds.Contains("eut2_balkan_w"),
+            "eut2_polar" => activeDlcIds.Contains("eut2_nordic"),
+            "eut2_nordic" => activeDlcIds.Contains("eut2_polar"),
+            "eut2_feldbinder" => activeDlcIds.Contains("eut2_feld"),
+            "eut2_feld" => activeDlcIds.Contains("eut2_feldbinder"),
+            _ => false,
+        };
     }
 }
 
