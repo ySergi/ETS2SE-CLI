@@ -32,7 +32,8 @@ public sealed record GameCatalogData(
     IReadOnlyList<PhotoSpotEntry>? PhotoSpots = null,
     IReadOnlyList<CinematicLocationEntry>? CinematicLocations = null,
     int MapItemCount = 0,
-    AcademyCatalogData? Academy = null);
+    AcademyCatalogData? Academy = null,
+    AchievementCatalogData? Achievements = null);
 
 /// <summary>
 /// Extracts ETS2's def.scs (and optionally map DLC archives) via scs_extractor.exe
@@ -165,6 +166,8 @@ public static partial class GameCatalog
             var mapItems = new Dictionary<ulong, MapItemEntry>();
             int[] levelXp = LevelTable.DefaultLevelXp;
             AcademyCatalogData? academy = null;
+            var feats = new List<FeatCatalogEntry>();
+            var cargos = new Dictionary<string, CargoCatalogEntry>(StringComparer.OrdinalIgnoreCase);
 
             void ProcessArchive(string scsPath, string label, bool readDefs, bool readMaps)
             {
@@ -220,6 +223,16 @@ public static partial class GameCatalog
 
                         if (academy is null)
                             academy = AcademyCatalog.ParseFromExtractedDefDir(outDir);
+
+                        if (feats.Count == 0)
+                        {
+                            var featPath = Path.Combine(outDir, "def", "feat_data.sii");
+                            if (File.Exists(featPath))
+                                feats.AddRange(AchievementCatalog.ParseFeatDataSii(featPath));
+                        }
+
+                        foreach (var cg in AchievementCatalog.ParseCargosFromDefDir(outDir))
+                            cargos[cg.Id] = cg;
                     }
 
                     if (readMaps)
@@ -275,6 +288,18 @@ public static partial class GameCatalog
                 mapItemCount = MapItemsCache.TryLoad(targetCache)?.Count ?? 0;
             }
 
+            AchievementCatalogData? achievementCatalog = null;
+            var coreScsPath = Path.Combine(gameDir, "core.scs");
+            if (File.Exists(coreScsPath))
+            {
+                log?.Invoke("Reading Steam achievements from core.scs...");
+                var achEntries = AchievementCatalog.ReadFromCoreScs(coreScsPath);
+                achievementCatalog = new AchievementCatalogData(
+                    achEntries,
+                    feats,
+                    cargos.Values.OrderBy(c => c.Id, StringComparer.OrdinalIgnoreCase).ToList());
+            }
+
             var data = new GameCatalogData(
                 gameDir,
                 DateTime.UtcNow,
@@ -285,7 +310,8 @@ public static partial class GameCatalog
                 photoSpots.Values.OrderBy(p => p.Id, StringComparer.Ordinal).ToList(),
                 cinematicLocations.Values.OrderBy(v => v.Id, StringComparer.Ordinal).ToList(),
                 mapItemCount,
-                academy);
+                academy,
+                achievementCatalog);
 
             File.WriteAllText(
                 CacheJsonPath(targetCache),
@@ -426,6 +452,81 @@ public static partial class GameCatalog
         {
             try { Directory.Delete(workRoot, recursive: true); } catch { /* best effort */ }
         }
+    }
+
+    /// <summary>
+    /// Reads Steam achievements from <c>core.scs</c> (and extracts feats/cargos from <c>def.scs</c> if needed),
+    /// preserving any already-cached DLC cities, photo spots, cinematics, map items, and Driving Academy data.
+    /// </summary>
+    public static AchievementCatalogData SyncAchievementsOnly(
+        ScsExtractorTool? extractor,
+        string gameDir,
+        string? cacheDir = null,
+        Action<string>? log = null)
+    {
+        var corePath = Path.Combine(gameDir, "core.scs");
+        if (!File.Exists(corePath))
+            throw new FileNotFoundException("core.scs not found in ETS2 directory.", corePath);
+
+        log?.Invoke("Reading Steam achievements from core.scs...");
+        var achievements = AchievementCatalog.ReadFromCoreScs(corePath);
+
+        var targetCache = cacheDir ?? DefaultCacheDir;
+        Directory.CreateDirectory(targetCache);
+        var existing = TryLoadCached(targetCache);
+
+        var feats = existing?.Achievements?.Feats ?? [];
+        var cargos = existing?.Achievements?.Cargos ?? [];
+
+        var defPath = Path.Combine(gameDir, "def.scs");
+        if ((feats.Count == 0 || cargos.Count == 0) && extractor is not null && File.Exists(defPath))
+        {
+            var workRoot = Path.Combine(Path.GetTempPath(), $"ets2se_ach_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(workRoot);
+            try
+            {
+                log?.Invoke("Extracting def.scs for career feats and cargo group definitions...");
+                extractor.Extract(defPath, workRoot);
+                var featPath = Path.Combine(workRoot, "def", "feat_data.sii");
+                if (File.Exists(featPath))
+                    feats = AchievementCatalog.ParseFeatDataSii(featPath);
+                cargos = AchievementCatalog.ParseCargosFromDefDir(workRoot);
+            }
+            finally
+            {
+                try { Directory.Delete(workRoot, recursive: true); } catch { /* best effort */ }
+            }
+        }
+
+        var achData = new AchievementCatalogData(achievements, feats, cargos);
+
+        if (existing is not null)
+        {
+            var updated = existing with { Achievements = achData };
+            File.WriteAllText(
+                CacheJsonPath(targetCache),
+                JsonSerializer.Serialize(updated, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        else
+        {
+            var fresh = new GameCatalogData(
+                gameDir,
+                DateTime.UtcNow,
+                LevelTable.DefaultLevelXp,
+                [],
+                [],
+                [],
+                null,
+                null,
+                0,
+                null,
+                achData);
+            File.WriteAllText(
+                CacheJsonPath(targetCache),
+                JsonSerializer.Serialize(fresh, new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        return achData;
     }
 
     private static bool IsPaintOrTuningDlc(string name) =>

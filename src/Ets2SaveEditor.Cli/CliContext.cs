@@ -82,6 +82,8 @@ internal sealed class CliOptions
         "base-only", "all-dlcs", "no-secret", "keep-permanent", "owned", "available",
         "assign-truck", "only-with-truck", "spread", "max-skills", "add",
         "from-visited", "all-garages", "all-companies",
+        "initial-only", "event-only", "ready", "pending",
+        "no-academy", "no-roads", "include-bus", "with-feats",
     };
 
     private static bool LooksLikeFlag(string s) =>

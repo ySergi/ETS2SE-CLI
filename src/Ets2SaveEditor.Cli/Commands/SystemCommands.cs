@@ -139,7 +139,7 @@ internal static class SystemCommands
 
     public static int Catalog(CliContext ctx, string[] args)
     {
-        if (args.Length == 0) throw new CliUsageException("Usage: ets2se catalog <status|sync|cities|photos|cinematics|academy> ...");
+        if (args.Length == 0) throw new CliUsageException("Usage: ets2se catalog <status|sync|cities|photos|cinematics|academy|achievements> ...");
         var sub = args[0].ToLowerInvariant();
         switch (sub)
         {
@@ -166,6 +166,9 @@ internal static class SystemCommands
                 Console.WriteLine(cached.Academy is { } ac
                     ? $"Academy:       {ac.Books.Count} books, {ac.Chapters.Count} chapters, {ac.PlayableScenarios.Count} levels, {ac.Rewards.Count} rewards"
                     : "Academy:       not cached (run 'ets2se catalog sync')");
+                Console.WriteLine(cached.Achievements is { } ach
+                    ? $"Achievements:  {ach.Achievements.Count} Steam ({ach.Achievements.Count(a => a.InitialCheck)} auto-on-load), {ach.Feats.Count} feats, {ach.Cargos.Count} cargos"
+                    : "Achievements:  not cached (run 'ets2se catalog sync' or 'ets2se achievements status')");
                 return 0;
             }
 
@@ -180,7 +183,7 @@ internal static class SystemCommands
                 Console.WriteLine(
                     $"Synced catalog: {data.Cities.Count} cities, {data.Companies.Count} companies, {data.TruckModels.Count} trucks, " +
                     $"{data.PhotoSpots?.Count ?? 0} photo spots, {data.CinematicLocations?.Count ?? 0} cinematics, {data.MapItemCount:N0} map items, " +
-                    $"{data.Academy?.PlayableScenarios.Count ?? 0} academy levels.");
+                    $"{data.Academy?.PlayableScenarios.Count ?? 0} academy levels, {data.Achievements?.Achievements.Count ?? 0} achievements.");
                 return 0;
             }
 
@@ -260,6 +263,30 @@ internal static class SystemCommands
                     shown++;
                 }
                 Console.WriteLine($"Total: {shown}");
+                return 0;
+            }
+
+            case "achievements":
+            {
+                var cached = GameCatalog.TryLoadCached()
+                             ?? throw new InvalidOperationException("Catalog not synced yet. Run 'ets2se catalog sync' first.");
+                var ach = cached.Achievements
+                          ?? throw new InvalidOperationException("Achievement definitions not cached yet. Run 'ets2se achievements status' or 'ets2se catalog sync' first.");
+                var filter = ctx.Options.GetFlag("filter");
+                int shown = 0;
+                for (int i = 0; i < ach.Achievements.Count; i++)
+                {
+                    var a = ach.Achievements[i];
+                    if (!string.IsNullOrEmpty(filter)
+                        && !a.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                        && !a.Group.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                        && !a.Description.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    var mode = a.InitialCheck ? "load " : "event";
+                    Console.WriteLine($"{i + 1,3}. [{mode}] {a.Group,-24} {a.Id,-28} target:{a.Target}");
+                    shown++;
+                }
+                Console.WriteLine($"Total: {shown} (feats: {ach.Feats.Count}, cargos: {ach.Cargos.Count})");
                 return 0;
             }
 

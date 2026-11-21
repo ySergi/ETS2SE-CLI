@@ -49,6 +49,9 @@ dotnet run --project src/Ets2SaveEditor.Cli -- map discover-all
 dotnet run --project src/Ets2SaveEditor.Cli -- academy status
 dotnet run --project src/Ets2SaveEditor.Cli -- academy list
 dotnet run --project src/Ets2SaveEditor.Cli -- academy complete --all
+dotnet run --project src/Ets2SaveEditor.Cli -- achievements status
+dotnet run --project src/Ets2SaveEditor.Cli -- achievements unlock --all --with-feats
+dotnet run --project src/Ets2SaveEditor.Cli -- achievements feats
 ```
 
 ## Map, Photo Spots & Cinematic Discovery
@@ -170,6 +173,39 @@ ets2se academy restore
 
 - **How it works:** Writes valid ETS2 `academy_save_container` (v105), `academy_book_state`, `academy_scenario_result` (v104 with exact per-scenario `goal_ids`, `goal_values`, `goal_success`, `scenario_score`, and `scenario_rank`), and `academy_log` start/end entries into `<profile>\academy\academy_book_states.sii`.
 - **Safe & reversible:** Preserves existing truck selections and completed results (upgrading ranked levels if a higher star count is requested; pass `--overwrite` to rewrite existing entries), supports `--dry-run` / `--no-backup`, and saves timestamped backups under `<profile>\.ets2se_backups\academy\<timestamp>\`.
+
+## Steam Achievements & Internal Career Feats
+
+`ets2se` reads ETS2's official Steam achievement definitions directly from `core.scs` (all 114 achievements across the base game, Driving Academy, Heavy Cargo, Special Transport, map DLCs, and Coaches) plus all 30 internal career feats from `def/feat_data.sii`, and updates every required profile/save statistic so ETS2 unlocks them cleanly:
+
+```powershell
+# Inspect per-DLC/group readiness (auto-on-load vs. event-triggered)
+ets2se achievements status
+
+# List achievements with progress (filter by --group, --initial-only, --event-only, --ready, --pending, --filter)
+ets2se achievements list
+ets2se achievements list --group iberia --pending
+ets2se achievements list --initial-only
+
+# Enable specific achievements by ID, number, range, or DLC group
+ets2se achievements unlock jobs_30_cargo 5_jobs_in_a_row map_discover_100
+ets2se achievements unlock --group france --group italy
+ets2se achievements unlock 1-15
+
+# Enable all achievements matching your save's active DLCs (+ Driving Academy & internal career feats)
+ets2se achievements unlock --all --with-feats
+
+# Enable only achievements that auto-unlock immediately on save load (initial_check: true)
+ets2se achievements unlock --all --initial-only
+
+# Unlock all 30 internal career feats (playtime, visited cities, screenshots, undamaged streak, cargo types, clean distance)
+ets2se achievements feats
+```
+
+- **How it works:**
+  - **Auto-unlock on save load (`initial_check: true`, 80 achievements):** Updates `visited_cities`, `stored_map_actions` (`map_action` with `command: achievement` & real DLC viewpoint UIDs), 24-parameter `delivery_log_entry` records (preserving consecutive clean manual delivery streaks), `transported_cargo_types`, `game_progress.owned_trucks` & `undamaged_transports.docks`, `unlocked_recruitments`, `discovered_items` (roads), garages & `productivity`/`profit_log`, maxed AI drivers, and Driving Academy `academy_book_states.sii`.
+  - **Event-triggered (`initial_check: false`, 34 achievements):** Pre-populates every underlying counter/log (`delivery_log`, `ferry_log`, `bus_job_log`, coach skills, `trucks_bought_online`, `profit_log`, etc.) and prints a concise checklist of the quick in-game action (e.g., sleep once, refuel once, complete 1 job, quick travel to HQ) needed for ETS2 to fire the achievement event.
+- **Options:** `--all`, `--group <name>`, `--initial-only`, `--all-dlcs`, `--base-only`, `--no-academy`, `--no-roads`, `--include-bus`, `--with-feats`, `--academy-file <path>`, `--sync`, `--game-dir <dir>`, plus global `--dry-run` and `--no-backup`.
 
 ## Global Options
 

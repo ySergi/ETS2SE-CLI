@@ -54,7 +54,7 @@
 | `stats rest` | Reset driver fatigue timers |
 | `stats clear-fines` | Clear police offence log and fine counters |
 
-* **Valid `<field>` values:** `time`, `distance`, `undamaged-row`, `clean-distance`, `clean-distance-max`, `no-damage-distance`, `no-damage-distance-max`, `no-violation-distance`, `no-violation-distance-max`, `red-light-fines`, `ai-crashes`, `cancelled-jobs`, `emergency-calls`, `fuel-litres`, `fuel-price`.
+* **Valid `<field>` values:** `time`, `distance`, `undamaged-row`, `clean-distance`, `clean-distance-max`, `no-damage-distance`, `no-damage-distance-max`, `no-violation-distance`, `no-violation-distance-max`, `red-light-fines`, `ai-crashes`, `cancelled-jobs`, `emergency-calls`, `fuel-litres`, `fuel-price`, `screenshots`, `service-visits`, `gas-visits`, `trucks-bought-online`, `color-changes`, `bus-xp`.
 
 ### Trucks
 | Command | Description |
@@ -143,6 +143,18 @@
 * **Star ratings (`--stars`):** Applies to star-ranked books (e.g. Book 2: Truck Driving Proficiency). Defaults to max stars (`3`), unlocking both standard completion and 3-star rewards.
 * **Backups:** Mutating commands target `<profile>/academy/academy_book_states.sii` (or `--academy-file <path>`) and automatically save a timestamped backup under `<profile>/.ets2se_backups/academy/<timestamp>/` unless `--no-backup` is passed.
 
+### Steam Achievements & Career Feats
+| Command | Description |
+| :--- | :--- |
+| `achievements status` | Show ETS2 Steam achievement & career feat readiness by DLC/group `[--all-dlcs \| --base-only] [--include-bus] [--sync] [--game-dir <dir>]` |
+| `achievements list` | List achievements with current progress `[--group <name>] [--initial-only \| --event-only] [--ready \| --pending] [--all-dlcs \| --base-only] [--include-bus] [--filter <text>]` |
+| `achievements unlock [<ids...>]` | Modify profile/save statistics, logs, map actions, garages, drivers, ferries, and Driving Academy to enable specific or all achievements (aliases: `prepare`, `enable`) `[--all] [--group <name>] [--initial-only] [--all-dlcs \| --base-only] [--no-academy] [--no-roads] [--include-bus] [--with-feats] [--academy-file <path>] [--sync] [--game-dir <dir>]` |
+| `achievements feats` | Unlock all 30 internal career feats (`def/feat_data.sii`) and raise their backing profile statistics to platinum limits |
+
+* **Selecting achievements:** Pass 1-based numbers or ranges from `achievements list` (e.g., `1-15`), exact `achievement_name`/`steam_id` values (e.g., `jobs_30_cargo`, `fr_nucplants`, `hc_1000xps`), `--group <base|academy|france|italy|iberia|north|balt|black sea|west balkans|greece|polar|iceland|heavy|special|bus>`, or `--all`.
+* **Auto-on-load vs. event-triggered:** Achievements marked `[load]` (`initial_check: true`) unlock automatically as soon as ETS2 loads the save; achievements marked `[event]` (`initial_check: false`) have their backing stats prepared and print the exact 1-line in-game trigger action needed.
+* **Bus/Coaches mode:** Excluded from `--all` by default unless `--include-bus` or `--group bus` is passed.
+
 ### Raw SII & System Utilities
 | Command | Description |
 | :--- | :--- |
@@ -154,4 +166,4 @@
 | `tools status\|install` | Check or install `SII_Decrypt` & `scs_extractor` |
 | `catalog status` | Show cached game catalog, photo spots, cinematics, and map item counts |
 | `catalog sync` | Extract game definitions and map sectors via `scs_extractor` `[--with-dlcs] [--no-maps] [--game-dir <dir>]` |
-| `catalog cities\|photos\|cinematics\|academy` | Query cached cities, photo spots, cinematic locations, or Driving Academy levels `[--filter <text>]` |
+| `catalog cities\|photos\|cinematics\|academy\|achievements` | Query cached cities, photo spots, cinematic locations, Driving Academy levels, or Steam achievements `[--filter <text>]` |

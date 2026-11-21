@@ -30,6 +30,7 @@ try
         "driver" => FleetCommands.Driver(ctx, rest),
         "map" => FleetCommands.Map(ctx, rest),
         "academy" => AcademyCommands.Academy(ctx, rest),
+        "achievements" or "achievement" => AchievementCommands.Achievements(ctx, rest),
         "raw" => SystemCommands.Raw(ctx, rest),
         "backup" => SystemCommands.Backup(ctx, rest),
         "tools" => await SystemCommands.ToolsAsync(ctx, rest),
@@ -139,6 +140,14 @@ static void PrintHelp()
           academy rewards            Show Driving Academy rewards and unlock progress
           academy backups|restore    List or restore timestamped academy_book_states.sii backups
 
+          achievements status        Show ETS2 Steam & internal achievement readiness by DLC/group
+          achievements list          List achievements [--group <name>] [--initial-only|--event-only]
+                                     [--ready|--pending] [--all-dlcs|--base-only] [--include-bus] [--filter <text>]
+          achievements unlock [<..>] Modify profile/save statistics to enable specific or all achievements
+                                     [--all] [--group <name>] [--initial-only] [--all-dlcs|--base-only]
+                                     [--no-academy] [--no-roads] [--include-bus] [--with-feats] [--sync]
+          achievements feats         Unlock all 30 internal career feats (def/feat_data.sii)
+
           raw find <type>            Find unit IDs of an SII type [--limit N]
           raw get <unitId> [attr]    Print a unit or attribute
           raw set <unitId> <k> <v>   Set an SII attribute [--add]
@@ -148,6 +157,6 @@ static void PrintHelp()
           tools status|install       Check or install SII_Decrypt & scs_extractor
           catalog status             Show cached game catalog & map item counts
           catalog sync               Extract game definitions & maps [--with-dlcs] [--no-maps] [--game-dir <dir>]
-          catalog cities|photos|cinematics|academy  Query cached definitions [--filter <text>]
+          catalog cities|photos|cinematics|academy|achievements  Query cached definitions [--filter <text>]
         """);
 }

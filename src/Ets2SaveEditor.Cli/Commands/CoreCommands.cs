@@ -315,6 +315,9 @@ internal static class CoreCommands
                     ["screenshots"] = "total_screeshot_count",
                     ["service-visits"] = "service_visit_count",
                     ["gas-visits"] = "gas_station_visit_count",
+                    ["trucks-bought-online"] = "trucks_bought_online",
+                    ["color-changes"] = "truck_color_change_count",
+                    ["bus-xp"] = "bus_experience_points",
                 };
                 if (!map.TryGetValue(field, out var attr))
                     throw new CliUsageException($"Unknown stat field '{field}'. Valid: time, distance, {string.Join(", ", map.Keys)}");
