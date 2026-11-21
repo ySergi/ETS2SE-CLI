@@ -502,14 +502,14 @@ public static partial class AchievementCatalog
             {
                 var items = node.GetList("list");
                 bool inOrder = "true".Equals(node.GetScalar("in_order"), StringComparison.OrdinalIgnoreCase);
-                int need = inOrder ? items.Count : Math.Min(Math.Max(1, targetCount), items.Count);
+                bool hasContainerChild = items.Any(id =>
+                    byId.TryGetValue(id, out var ch)
+                    && ch.Type is "achievement_delivery_count" or "achievement_delivery_sequence" or "achievement_unique_delivery_points");
+                int need = (inOrder || hasContainerChild) ? items.Count : Math.Min(Math.Max(1, targetCount), items.Count);
                 for (int i = 0; i < need; i++)
                 {
                     if (byId.TryGetValue(items[i], out var child))
-                    {
-                        var built = BuildSingleDeliveryFromCondition(child, byId, new AchievementDeliverySpec());
-                        output.Add(built);
-                    }
+                        CollectConditionDeliverySpecs(child, byId, 1, output);
                 }
                 break;
             }
@@ -641,6 +641,19 @@ public static partial class AchievementCatalog
             {
                 var cargoName = node.GetScalar("cargo_name");
                 var cargoGroup = node.GetScalar("cargo_group");
+                var adr = node.GetScalar("adr");
+                if (string.IsNullOrWhiteSpace(cargoName) && !string.IsNullOrWhiteSpace(adr))
+                {
+                    cargoName = adr switch
+                    {
+                        "1" or "class_1" => "dynamite",
+                        "2" or "class_2" => "acetylene",
+                        "4" or "class_4" => "phosphorus",
+                        "6" or "class_6" => "pesticide",
+                        "8" or "class_8" => "acid",
+                        _ => "diesel",
+                    };
+                }
                 return spec with
                 {
                     Cargo = cargoName ?? spec.Cargo,

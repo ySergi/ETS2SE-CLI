@@ -440,10 +440,11 @@ public static class AchievementEditor
                 s.BookId.Equals($"academy.book.{bookShort}", StringComparison.OrdinalIgnoreCase)
                 && states.TryGetValue(s.Id, out var st) && st.IsCompleted && st.Rank >= minRank);
 
-        int DoneInChapter(string chShort) =>
+        int DoneInChapter(string chShort, bool requireTriggerStates = false) =>
             ac.PlayableScenarios.Count(s =>
                 string.Equals(s.ChapterId, $"academy.chapter.{chShort}", StringComparison.OrdinalIgnoreCase)
-                && states.TryGetValue(s.Id, out var st) && st.IsCompleted);
+                && states.TryGetValue(s.Id, out var st) && st.IsCompleted
+                && (!requireTriggerStates || st.HasTriggerStates));
 
         switch (ach.Id)
         {
@@ -454,13 +455,13 @@ public static class AchievementEditor
             }
             case "aca_interior":
             {
-                int n = DoneInChapter("book1.4");
-                return (n >= ach.Target, $"{n}/{ach.Target} ch4 scenarios");
+                int n = DoneInChapter("book1.4", requireTriggerStates: true);
+                return (n >= ach.Target, $"{n}/{ach.Target} ch4 interior scenarios");
             }
             case "aca_no_forward":
             {
-                int n = DoneInChapter("book1.4");
-                return (n >= 1, $"{Math.Min(n, 1)}/1 ch4 scenario");
+                int n = DoneInChapter("book1.4", requireTriggerStates: true);
+                return (n >= 1, $"{Math.Min(n, 1)}/1 ch4 no-forward scenario");
             }
             case "aca_truck_driving":
             {
@@ -471,8 +472,10 @@ public static class AchievementEditor
             }
             case "aca_manual_transmission":
             {
-                int n = DoneInChapter("book1.2") + DoneInChapter("book1.3") + DoneInChapter("book1.4");
-                return (n >= ach.Target, $"{n}/{ach.Target} ch2-4 scenarios");
+                int n = DoneInChapter("book1.2", requireTriggerStates: true)
+                      + DoneInChapter("book1.3", requireTriggerStates: true)
+                      + DoneInChapter("book1.4", requireTriggerStates: true);
+                return (n >= ach.Target, $"{n}/{ach.Target} ch2-4 manual scenarios");
             }
             case "aca_consecutive":
             {
@@ -668,7 +671,8 @@ public static class AchievementEditor
         bool includeRoads = true,
         bool withFeats = false,
         DrivingAcademy? academy = null,
-        AcademyCatalogData? academyCatalog = null)
+        AcademyCatalogData? academyCatalog = null,
+        string? consecutiveTailMode = null)
     {
         var preStatus = Evaluate(save, achCatalog, gameCatalog, academy, academyCatalog, targets)
             .ToDictionary(s => s.Entry.Id, StringComparer.OrdinalIgnoreCase);
@@ -694,7 +698,8 @@ public static class AchievementEditor
 
         var pendingAutoParkSpecs = new List<AchievementDeliverySpec>();
         var pendingNormalSpecs = new List<AchievementDeliverySpec>();
-        var pendingConsecutiveTailSpecs = new List<AchievementDeliverySpec>();
+        bool needHeavyConsecutiveTail = false;
+        bool needOversizeConsecutiveTail = false;
         var extraCargos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var extraOwnedTruckModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool needAllTrailerGroups = false;
@@ -843,13 +848,19 @@ public static class AchievementEditor
                 default:
                 {
                     // Delivery-based achievements
-                    bool isConsecutiveTail = ach.Id is "5_jobs_in_a_row" or "hc_threeperf" or "hc_250t5jobs" or "jobs_20k_xp";
+                    if (ach.Id is "5_jobs_in_a_row" or "hc_threeperf" or "hc_250t5jobs" or "jobs_20k_xp")
+                    {
+                        needHeavyConsecutiveTail = true;
+                        break;
+                    }
+                    if (ach.Id is "st_no_damage" or "st_mass")
+                    {
+                        needOversizeConsecutiveTail = true;
+                    }
                     foreach (var spec in ach.DeliverySpecs)
                     {
                         if (spec.Autoparking)
                             pendingAutoParkSpecs.Add(spec);
-                        else if (isConsecutiveTail)
-                            pendingConsecutiveTailSpecs.Add(spec);
                         else
                             pendingNormalSpecs.Add(spec);
                     }
@@ -882,11 +893,57 @@ public static class AchievementEditor
             }
         }
 
-        // 2. Expand & append deliveries in safe order: autopark -> normal -> consecutive clean tail
+        // 2. Expand & append deliveries in safe order: autopark -> normal -> unified consecutive tail
         var expandedDeliveries = new List<AchievementDeliverySpec>();
         expandedDeliveries.AddRange(ExpandSpecs(pendingAutoParkSpecs, companies, cityCountry, cargosByGroup));
         expandedDeliveries.AddRange(ExpandSpecs(pendingNormalSpecs, companies, cityCountry, cargosByGroup));
-        expandedDeliveries.AddRange(ExpandSpecs(pendingConsecutiveTailSpecs, companies, cityCountry, cargosByGroup));
+
+        bool forceOversizeTail = "oversize".Equals(consecutiveTailMode, StringComparison.OrdinalIgnoreCase)
+                                 || "special".Equals(consecutiveTailMode, StringComparison.OrdinalIgnoreCase);
+        bool forceHeavyTail = "heavy".Equals(consecutiveTailMode, StringComparison.OrdinalIgnoreCase);
+
+        if (forceOversizeTail || (!forceHeavyTail && !needHeavyConsecutiveTail && needOversizeConsecutiveTail))
+        {
+            // 3 consecutive damage-free 100t Special Transport deliveries at tail so 1 clean oversize job pops st_no_damage & st_mass
+            string[] stCargos = ["heat_exch", "dumper", "silo"];
+            for (int i = 0; i < 3; i++)
+            {
+                expandedDeliveries.Add(new AchievementDeliverySpec(
+                    Cargo: stCargos[i],
+                    SpecialRoute: "ber_szcz1",
+                    DistanceKm: 350,
+                    RewardEur: 35000,
+                    XpEarned: 4200,
+                    CargoDamage: 0f,
+                    RemainingTimeMin: 120,
+                    Autoparking: false,
+                    UnloadDifficulty: 3,
+                    OwnedTruck: true,
+                    Fines: 0,
+                    CargoMassKg: 100000f));
+            }
+        }
+        else if (forceHeavyTail || needHeavyConsecutiveTail)
+        {
+            // 5 consecutive clean 62t Heavy Cargo Pack deliveries (2,000 km total, 21,000 XP, 310t total)
+            // Simultaneously satisfies 5_jobs_in_a_row, jobs_20k_xp (8,000 km headroom), hc_threeperf, and hc_250t5jobs on the next clean Heavy Cargo job!
+            string[] hcCargos = ["dozer", "locomotive", "asph_miller", "concr_beams", "mobile_crane"];
+            for (int i = 0; i < 5; i++)
+            {
+                expandedDeliveries.Add(new AchievementDeliverySpec(
+                    Cargo: hcCargos[i],
+                    DistanceKm: 400,
+                    RewardEur: 28000,
+                    XpEarned: 4200,
+                    CargoDamage: 0f,
+                    RemainingTimeMin: 120,
+                    Autoparking: false,
+                    UnloadDifficulty: 3,
+                    OwnedTruck: true,
+                    Fines: 0,
+                    CargoMassKg: 62000f));
+            }
+        }
 
         if (expandedDeliveries.Count > 0)
         {

@@ -205,7 +205,7 @@ ets2se achievements feats
 - **How it works:**
   - **Auto-unlock on save load (`initial_check: true`, 80 achievements):** Updates `visited_cities`, `stored_map_actions` (`map_action` with `command: achievement` & real DLC viewpoint UIDs), 24-parameter `delivery_log_entry` records (preserving consecutive clean manual delivery streaks), `transported_cargo_types`, `game_progress.owned_trucks` & `undamaged_transports.docks`, `unlocked_recruitments`, `discovered_items` (roads), garages & `productivity`/`profit_log`, maxed AI drivers, and Driving Academy `academy_book_states.sii`.
   - **Event-triggered (`initial_check: false`, 34 achievements):** Pre-populates every underlying counter/log (`delivery_log`, `ferry_log`, `bus_job_log`, coach skills, `trucks_bought_online`, `profit_log`, etc.) and prints a concise checklist of the quick in-game action (e.g., sleep once, refuel once, complete 1 job, quick travel to HQ) needed for ETS2 to fire the achievement event.
-- **Options:** `--all`, `--group <name>`, `--initial-only`, `--all-dlcs`, `--base-only`, `--no-academy`, `--no-roads`, `--include-bus`, `--with-feats`, `--academy-file <path>`, `--sync`, `--game-dir <dir>`, plus global `--dry-run` and `--no-backup`.
+- **Options:** `--all`, `--group <name>`, `--initial-only`, `--all-dlcs`, `--base-only`, `--tail <heavy|oversize>`, `--no-academy`, `--no-roads`, `--include-bus`, `--with-feats`, `--academy-file <path>`, `--sync`, `--game-dir <dir>`, plus global `--dry-run` and `--no-backup`.
 
 ## Global Options
 

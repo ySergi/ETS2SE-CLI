@@ -626,4 +626,184 @@ public class AchievementTests : IDisposable
         var post = AchievementEditor.Evaluate(save, new AchievementCatalogData(entries, [], []));
         Assert.All(post, s => Assert.True(s.IsReady, $"Expected {s.Entry.Id} ready, got {s.Progress}"));
     }
+
+    [Fact]
+    public void NestedSequenceCountAndAdrCargo_EmitAllExpectedDeliveries()
+    {
+        const string sii = """
+            SiiNunit
+            {
+            # -- DLC Iberia --
+            achievement_delivery : .achievement.ib_solar_pow
+            {
+            	event_name: job_done
+            	initial_check: true
+            	condition: .ib_solar_pow.condition
+            	target: 2
+            	achievement_name: ib_solar_power_plants
+            	steam_id: ib_solar_power_plants
+            }
+            achievement_delivery_sequence : .ib_solar_pow.condition
+            {
+            	list[]: .ib_solar_pow.badajoz
+            	list[]: .ib_solar_pow.ciudad_real
+            }
+            achievement_delivery_each : .ib_solar_pow.badajoz
+            {
+            	list[]: .ib_solar_pow.badajoz.cargo
+            	list[]: .ib_solar_pow.badajoz.company
+            }
+            achievement_delivery_cargo : .ib_solar_pow.badajoz.cargo
+            {
+            	adr: any_class
+            }
+            achievement_delivery_company : .ib_solar_pow.badajoz.company
+            {
+            	role: target
+            	company_name: engeron
+            	city_name: badajoz
+            }
+            achievement_delivery_each : .ib_solar_pow.ciudad_real
+            {
+            	list[]: .ib_solar_pow.ciudad_real.cargo
+            	list[]: .ib_solar_pow.ciudad_real.company
+            }
+            achievement_delivery_cargo : .ib_solar_pow.ciudad_real.cargo
+            {
+            	adr: any_class
+            }
+            achievement_delivery_company : .ib_solar_pow.ciudad_real.company
+            {
+            	role: target
+            	company_name: engeron
+            	city_name: ciudad_real
+            }
+
+            # -- DLC Greece --
+            achievement_delivery : .achievement.gr_marble
+            {
+            	event_name: job_done
+            	initial_check: true
+            	condition: .gr_marble.condition
+            	target: 6
+            	achievement_name: gr_marble
+            	steam_id: gr_marble
+            }
+            achievement_delivery_sequence : .gr_marble.condition
+            {
+            	list[]: .gr_marble.marb_blck
+            	list[]: .gr_marble.marb_slab
+            }
+            achievement_delivery_count : .gr_marble.marb_blck
+            {
+            	condition: .gr_marble.marb_blck.3
+            	count: 3
+            }
+            achievement_delivery_each : .gr_marble.marb_blck.3
+            {
+            	list[]: .gr_marble.marb_blck.3.cargo
+            	list[]: .gr_marble.marb_blck.3.source
+            }
+            achievement_delivery_cargo : .gr_marble.marb_blck.3.cargo
+            {
+            	cargo_name: marb_blck
+            }
+            achievement_delivery_company : .gr_marble.marb_blck.3.source
+            {
+            	role: source
+            	company_name: rock_eater
+            	country_name: greece
+            }
+            achievement_delivery_count : .gr_marble.marb_slab
+            {
+            	condition: .gr_marble.marb_slab.3
+            	count: 3
+            }
+            achievement_delivery_each : .gr_marble.marb_slab.3
+            {
+            	list[]: .gr_marble.marb_slab.3.cargo
+            	list[]: .gr_marble.marb_slab.3.source
+            }
+            achievement_delivery_cargo : .gr_marble.marb_slab.3.cargo
+            {
+            	cargo_name: marb_slab
+            }
+            achievement_delivery_company : .gr_marble.marb_slab.3.source
+            {
+            	role: source
+            	company_name: rock_eater
+            	country_name: greece
+            }
+            }
+            """;
+
+        var entries = AchievementCatalog.ParseAchievementSii(sii);
+        var solar = entries.Single(e => e.Id == "ib_solar_power_plants");
+        Assert.Equal(2, solar.DeliverySpecs.Length);
+        Assert.All(solar.DeliverySpecs, s => Assert.Equal("diesel", s.Cargo));
+
+        var marble = entries.Single(e => e.Id == "gr_marble");
+        Assert.Equal(6, marble.DeliverySpecs.Length);
+        Assert.Equal(3, marble.DeliverySpecs.Count(s => s.Cargo == "marb_blck"));
+        Assert.Equal(3, marble.DeliverySpecs.Count(s => s.Cargo == "marb_slab"));
+    }
+
+    [Fact]
+    public void DrivingAcademy_TriggerStateNamesAreUnsignedCityHash64Integers()
+    {
+        // Known ETS2 CityHash64 v1.0.2 vectors (verified against eurotrucks2.exe @ 0x14015FC60)
+        Assert.Equal(0x9ae16a3b2f90404fUL, DrivingAcademy.CityHash64("")); // 0 bytes (root)
+        var defScs = @"D:\Games\Steam\steamapps\common\Euro Truck Simulator 2\def.scs";
+        if (File.Exists(defScs))
+        {
+            // Verify 3-byte ("def"), 11-byte ("def/academy", 9..16 branch), and 17-byte ("def/feat_data.sii", 17..32 branch)
+            var b = File.ReadAllBytes(defScs);
+            uint ec = BitConverter.ToUInt32(b, 12);
+            uint ets = BitConverter.ToUInt32(b, 16);
+            ulong eto = BitConverter.ToUInt64(b, 28);
+            using var ms = new MemoryStream(b, (int)eto, (int)ets);
+            using var zs = new System.IO.Compression.ZLibStream(ms, System.IO.Compression.CompressionMode.Decompress);
+            using var outMs = new MemoryStream();
+            zs.CopyTo(outMs);
+            var et = outMs.ToArray();
+            var defHashes = new HashSet<ulong>();
+            for (int i = 0; i < ec; i++) defHashes.Add(BitConverter.ToUInt64(et, i * 16));
+
+            Assert.Contains(DrivingAcademy.CityHash64("def"), defHashes);
+            Assert.Contains(DrivingAcademy.CityHash64("def/city"), defHashes);
+            Assert.Contains(DrivingAcademy.CityHash64("def/academy"), defHashes);
+            Assert.Contains(DrivingAcademy.CityHash64("def/feat_data.sii"), defHashes);
+            Assert.Contains(DrivingAcademy.CityHash64("def/economy_data.sii"), defHashes);
+        }
+        var extCamHash = DrivingAcademy.CityHash64("exterior_camera_use");
+        var transArcHash = DrivingAcademy.CityHash64("trans_arcade");
+        var driveFwdHash = DrivingAcademy.CityHash64("drive_forward");
+        Assert.NotEqual(0UL, extCamHash);
+        Assert.NotEqual(extCamHash, transArcHash);
+        Assert.NotEqual(extCamHash, driveFwdHash);
+
+        var acPath = Path.Combine(_tempDir, "academy_book_states.sii");
+        var academy = DrivingAcademy.Load(acPath, null);
+        var catalog = new AcademyCatalogData(
+            Books: [new("academy.book.book1", "book1", 1, "Book 1", null, ["academy.chapter.book1.4"])],
+            Chapters: [new("academy.chapter.book1.4", "book1.4", "academy.book.book1", 4, "Ch 4", ["academy.scenario.book1.3_17"])],
+            Scenarios:
+            [
+                new("academy.scenario.book1.3_17", "book1.3_17", "academy.book.book1", "academy.chapter.book1.4",
+                    1, 0, [], [], [], []),
+            ],
+            Rewards: []);
+
+        academy.CompleteScenarios(catalog, catalog.PlayableScenarios, writeLog: true);
+        var res = academy.Document.FirstOfType("academy_scenario_result")!;
+        var names = res.GetArray("trigger_state_names");
+        var vals = res.GetArray("trigger_state_values");
+
+        Assert.Equal(12, names.Count);
+        Assert.Equal(12, vals.Count);
+        Assert.All(names, n => Assert.True(ulong.TryParse(n, out _), $"Expected unsigned integer hash, got '{n}'."));
+        Assert.Contains(extCamHash.ToString(), names);
+        Assert.Contains(transArcHash.ToString(), names);
+        Assert.Contains(driveFwdHash.ToString(), names);
+    }
 }

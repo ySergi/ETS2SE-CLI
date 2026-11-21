@@ -142,6 +142,11 @@ internal static class AchievementCommands
         bool withFeats = ctx.Options.HasFlag("with-feats");
         bool includeAcademy = !ctx.Options.HasFlag("no-academy");
         bool includeRoads = !ctx.Options.HasFlag("no-roads");
+        var tailMode = ctx.Options.GetFlag("tail");
+        if (tailMode is not null && !tailMode.Equals("heavy", StringComparison.OrdinalIgnoreCase)
+            && !tailMode.Equals("oversize", StringComparison.OrdinalIgnoreCase)
+            && !tailMode.Equals("special", StringComparison.OrdinalIgnoreCase))
+            throw new CliUsageException("Invalid '--tail' value. Use 'heavy' or 'oversize'.");
         var groupSelectors = ctx.Options.GetFlags("group");
 
         if (!all && groupSelectors.Count == 0 && idArgs.Length == 0)
@@ -192,7 +197,8 @@ internal static class AchievementCommands
                     targetStars: 3,
                     overwrite: false,
                     includeIntros: true,
-                    writeLog: true);
+                    writeLog: true,
+                    ensureTriggerStates: true);
             }
             catch (Exception ex)
             {
@@ -209,7 +215,8 @@ internal static class AchievementCommands
             includeRoads,
             withFeats,
             academy,
-            academyCatalog);
+            academyCatalog,
+            tailMode);
 
         var summaryParts = new List<string>();
         if (result.CitiesVisited > 0) summaryParts.Add($"+{result.CitiesVisited} cities");

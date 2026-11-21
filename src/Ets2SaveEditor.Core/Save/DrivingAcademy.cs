@@ -16,7 +16,8 @@ public sealed record AcademyScenarioState(
     uint DurationSeconds,
     long CreationTime,
     uint ScenarioVersion,
-    uint ResultVersion);
+    uint ResultVersion,
+    bool HasTriggerStates = false);
 
 public sealed record AcademyCompleteResult(
     int NewlyCompleted,
@@ -188,9 +189,12 @@ public sealed class DrivingAcademy
                 uint duration = ParseUInt(res.Get("scenario_duration"), 0);
                 long creationTime = res.GetLong("creation_time") ?? 0;
                 bool completed = rank != FailedRank;
+                var trigNames = res.GetArray("trigger_state_names");
+                bool hasTriggerStates = trigNames.Count > 0
+                                        && trigNames.All(n => ulong.TryParse(n.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out _));
 
                 var candidate = new AcademyScenarioState(
-                    scenarioId, bookId, res.Id, completed, rank, score, duration, creationTime, scenarioVersion, resultVersion);
+                    scenarioId, bookId, res.Id, completed, rank, score, duration, creationTime, scenarioVersion, resultVersion, hasTriggerStates);
 
                 if (!states.TryGetValue(scenarioId, out var existing) || IsBetterState(candidate, existing))
                     states[scenarioId] = candidate;
@@ -248,6 +252,148 @@ public sealed class DrivingAcademy
         return result;
     }
 
+    private static readonly string[] TriggerStateKeys =
+    [
+        "exterior_camera_use",
+        "exterior_camera_move",
+        "drive_forward",
+        "drive_backward",
+        "direction_forward",
+        "direction_backward",
+        "direction_change",
+        "trans_arcade",
+        "trans_automatic",
+        "trans_manual",
+        "trans_direct",
+        "collision",
+    ];
+
+    // ETS2 stores academy_scenario_result.trigger_state_names as u64[] CityHash64 (v1.0.2) hashes.
+    private static readonly string[] CleanTriggerStateNames =
+        TriggerStateKeys.Select(k => CityHash64(k).ToString(CultureInfo.InvariantCulture)).ToArray();
+
+    private static readonly string[] CleanTriggerStateValues =
+    [
+        "0", "0", "0", "1", "0", "1", "0", "0", "0", "1", "0", "0",
+    ];
+
+    /// <summary>
+    /// Computes Google CityHash64 (v1.0.2) matching ETS2's Prism3D engine hash used for
+    /// <c>academy_scenario_result.trigger_state_names</c> and HashFS identifiers.
+    /// </summary>
+    public static ulong CityHash64(string text)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        return CityHash64(bytes);
+    }
+
+    public static ulong CityHash64(ReadOnlySpan<byte> s)
+    {
+        const ulong k0 = 0xc3a5c85c97cb3127UL;
+        const ulong k1 = 0xb492b66fbe98f273UL;
+        const ulong k2 = 0x9ae16a3b2f90404fUL;
+        const ulong k3 = 0xc949d7c7509e6557UL;
+
+        int len = s.Length;
+        if (len <= 16)
+        {
+            if (len > 8)
+            {
+                ulong a = Fetch64(s, 0);
+                ulong b = Fetch64(s, len - 8);
+                return HashLen16(a, Rotate(b + (ulong)len, len)) ^ b;
+            }
+            if (len >= 4)
+            {
+                ulong a = Fetch32(s, 0);
+                return HashLen16((ulong)len + (a << 3), Fetch32(s, len - 4));
+            }
+            if (len > 0)
+            {
+                byte a = s[0];
+                byte b = s[len >> 1];
+                byte c = s[len - 1];
+                uint y = a + ((uint)b << 8);
+                uint z = (uint)len + ((uint)c << 2);
+                return ShiftMix(y * k2 ^ z * k3) * k2;
+            }
+            return k2;
+        }
+
+        if (len <= 32)
+        {
+            ulong a = Fetch64(s, 0) * k1;
+            ulong b = Fetch64(s, 8);
+            ulong c = Fetch64(s, len - 8) * k2;
+            ulong d = Fetch64(s, len - 16) * k0;
+            return HashLen16(
+                Rotate(a - b, 43) + Rotate(c, 30) + d,
+                a + Rotate(b ^ k3, 20) - c + (ulong)len);
+        }
+
+        // len > 32 (not needed for short trigger names, included for completeness)
+        ulong x = Fetch64(s, len - 40);
+        ulong y2 = Fetch64(s, len - 16) + Fetch64(s, len - 56);
+        ulong z2 = HashLen16(Fetch64(s, len - 48) + (ulong)len, Fetch64(s, len - 24));
+        (ulong v0, ulong v1) = WeakHashLen32WithSeeds(s, len - 64, (ulong)len, z2);
+        (ulong w0, ulong w1) = WeakHashLen32WithSeeds(s, len - 32, y2 + k1, x);
+        x = x * k1 + Fetch64(s, 0);
+        int rem = (len - 1) & ~63;
+        int pos = 0;
+        do
+        {
+            x = Rotate(x + y2 + v0 + Fetch64(s, pos + 8), 37) * k1;
+            y2 = Rotate(y2 + v1 + Fetch64(s, pos + 48), 42) * k1;
+            x ^= w1;
+            y2 += v0 + Fetch64(s, pos + 40);
+            z2 = Rotate(z2 + w0, 33) * k1;
+            (v0, v1) = WeakHashLen32WithSeeds(s, pos, v1 * k1, x + w0);
+            (w0, w1) = WeakHashLen32WithSeeds(s, pos + 32, z2 + w1, y2 + Fetch64(s, pos + 16));
+            (z2, x) = (x, z2);
+            pos += 64;
+            rem -= 64;
+        } while (rem != 0);
+        return HashLen16(HashLen16(v0, w0) + ShiftMix(y2) * k1 + z2, HashLen16(v1, w1) + x);
+    }
+
+    private static ulong Fetch64(ReadOnlySpan<byte> s, int offset) =>
+        System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(s.Slice(offset, 8));
+
+    private static uint Fetch32(ReadOnlySpan<byte> s, int offset) =>
+        System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(s.Slice(offset, 4));
+
+    private static ulong Rotate(ulong val, int shift) =>
+        shift == 0 ? val : (val >> (shift & 63)) | (val << (64 - (shift & 63)));
+
+    private static ulong ShiftMix(ulong val) => val ^ (val >> 47);
+
+    private static ulong HashLen16(ulong u, ulong v)
+    {
+        const ulong kMul = 0x9ddfea08eb382d69UL;
+        ulong a = (u ^ v) * kMul;
+        a ^= a >> 47;
+        ulong b = (v ^ a) * kMul;
+        b ^= b >> 47;
+        b *= kMul;
+        return b;
+    }
+
+    private static (ulong First, ulong Second) WeakHashLen32WithSeeds(
+        ReadOnlySpan<byte> s, int offset, ulong a, ulong b)
+    {
+        ulong w = Fetch64(s, offset);
+        ulong x = Fetch64(s, offset + 8);
+        ulong y = Fetch64(s, offset + 16);
+        ulong z = Fetch64(s, offset + 24);
+        a += w;
+        b = Rotate(b + a + z, 21);
+        ulong c = a;
+        a += x;
+        a += y;
+        b += Rotate(a, 44);
+        return (a + z, b + c);
+    }
+
     public AcademyCompleteResult CompleteScenarios(
         AcademyCatalogData catalog,
         IEnumerable<AcademyScenarioEntry> scenarios,
@@ -256,7 +402,8 @@ public sealed class DrivingAcademy
         bool overwrite = false,
         bool includeIntros = false,
         bool writeLog = true,
-        long? baseUnixTime = null)
+        long? baseUnixTime = null,
+        bool ensureTriggerStates = false)
     {
         if (durationSeconds == 0)
             throw new ArgumentOutOfRangeException(nameof(durationSeconds), "Duration must be at least 1 second.");
@@ -347,7 +494,8 @@ public sealed class DrivingAcademy
             bool hadExisting = existingStates.TryGetValue(sc.Id, out var prev);
             bool alreadyValidCompleted = hadExisting
                                          && prev!.IsCompleted
-                                         && prev.ScenarioVersion == sc.Version;
+                                         && prev.ScenarioVersion == sc.Version
+                                         && (!ensureTriggerStates || prev.HasTriggerStates);
 
             if (alreadyValidCompleted && !overwrite)
             {
@@ -386,8 +534,8 @@ public sealed class DrivingAcademy
             resultUnit.SetArray("goal_ids", goalIds, addIfMissing: true);
             resultUnit.SetArray("goal_values", goalValues, addIfMissing: true);
             resultUnit.SetArray("goal_success", goalSuccess, addIfMissing: true);
-            resultUnit.SetArray("trigger_state_names", [], addIfMissing: true);
-            resultUnit.SetArray("trigger_state_values", [], addIfMissing: true);
+            resultUnit.SetArray("trigger_state_names", CleanTriggerStateNames, addIfMissing: true);
+            resultUnit.SetArray("trigger_state_values", CleanTriggerStateValues, addIfMissing: true);
 
             var anchor = Document.Units.LastOrDefault() ?? bookStateUnit;
             Document.InsertUnitAfter(anchor, resultUnit);

@@ -148,7 +148,7 @@
 | :--- | :--- |
 | `achievements status` | Show ETS2 Steam achievement & career feat readiness by DLC/group `[--all-dlcs \| --base-only] [--include-bus] [--sync] [--game-dir <dir>]` |
 | `achievements list` | List achievements with current progress `[--group <name>] [--initial-only \| --event-only] [--ready \| --pending] [--all-dlcs \| --base-only] [--include-bus] [--filter <text>]` |
-| `achievements unlock [<ids...>]` | Modify profile/save statistics, logs, map actions, garages, drivers, ferries, and Driving Academy to enable specific or all achievements (aliases: `prepare`, `enable`) `[--all] [--group <name>] [--initial-only] [--all-dlcs \| --base-only] [--no-academy] [--no-roads] [--include-bus] [--with-feats] [--academy-file <path>] [--sync] [--game-dir <dir>]` |
+| `achievements unlock [<ids...>]` | Modify profile/save statistics, logs, map actions, garages, drivers, ferries, and Driving Academy to enable specific or all achievements (aliases: `prepare`, `enable`) `[--all] [--group <name>] [--initial-only] [--all-dlcs \| --base-only] [--tail <heavy\|oversize>] [--no-academy] [--no-roads] [--include-bus] [--with-feats] [--academy-file <path>] [--sync] [--game-dir <dir>]` |
 | `achievements feats` | Unlock all 30 internal career feats (`def/feat_data.sii`) and raise their backing profile statistics to platinum limits |
 
 * **Selecting achievements:** Pass 1-based numbers or ranges from `achievements list` (e.g., `1-15`), exact `achievement_name`/`steam_id` values (e.g., `jobs_30_cargo`, `fr_nucplants`, `hc_1000xps`), `--group <base|academy|france|italy|iberia|north|balt|black sea|west balkans|greece|polar|iceland|heavy|special|bus>`, or `--all`.

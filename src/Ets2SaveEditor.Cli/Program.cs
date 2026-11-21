@@ -145,7 +145,8 @@ static void PrintHelp()
                                      [--ready|--pending] [--all-dlcs|--base-only] [--include-bus] [--filter <text>]
           achievements unlock [<..>] Modify profile/save statistics to enable specific or all achievements
                                      [--all] [--group <name>] [--initial-only] [--all-dlcs|--base-only]
-                                     [--no-academy] [--no-roads] [--include-bus] [--with-feats] [--sync]
+                                     [--tail <heavy|oversize>] [--no-academy] [--no-roads] [--include-bus]
+                                     [--with-feats] [--sync]
           achievements feats         Unlock all 30 internal career feats (def/feat_data.sii)
 
           raw find <type>            Find unit IDs of an SII type [--limit N]
